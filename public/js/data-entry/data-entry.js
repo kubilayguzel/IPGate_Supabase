@@ -315,7 +315,14 @@ class DataEntryModule {
 
         if (!strategy) return alert('Geçersiz IP Türü');
 
-        const recordData = strategy.collectData(this);
+        // 1. Stratejiden (Formdan) Spesifik Verileri Topla
+        const recordData = strategy.collectData(this) || {};
+
+        // 2. Ortak Form Verilerini Birleştir
+        recordData.ipType = ipType;
+        recordData.origin = document.getElementById('originSelect')?.value;
+        recordData.applicants = this.selectedApplicants;
+        recordData.priorities = this.priorities;
 
         if (this.currentIpType === 'trademark') {
             const selectedNiceData = getSelectedNiceClasses(); 
@@ -340,6 +347,7 @@ class DataEntryModule {
             recordData.applicantIds = [];
         }
 
+        // 3. Verileri Doğrula
         const error = strategy.validate(recordData, this);
         if (error) return alert(error);
 
@@ -351,6 +359,7 @@ class DataEntryModule {
             this.saveBtn.disabled = true;
             this.saveBtn.textContent = 'İşleniyor...';
 
+            // 4. Dava İse Direkt Strategy.save() Çalışır
             if (strategy.save) {
                 if (this.editingRecordId) recordData.id = this.editingRecordId;
                 await strategy.save(recordData);
@@ -360,6 +369,7 @@ class DataEntryModule {
                 return; 
             }
 
+            // 5. Marka/Patent vb. İse Resim Yükleme İşlemi
             if (ipType === 'trademark' && this.uploadedBrandImage instanceof File) {
                 this.saveBtn.textContent = 'Resim Yükleniyor...';
                 // 🔥 SUPABASE STORAGE
@@ -371,6 +381,7 @@ class DataEntryModule {
 
             this.saveBtn.textContent = 'Kaydediliyor...';
 
+            // 6. Mevcut Kaydı Güncelle
             if (this.editingRecordId) {
                 if (recordData.origin === 'WIPO') recordData.wipoIR = recordData.internationalRegNumber || recordData.registrationNumber;
                 else if (recordData.origin === 'ARIPO') recordData.aripoIR = recordData.internationalRegNumber || recordData.registrationNumber;
@@ -390,7 +401,9 @@ class DataEntryModule {
                 alert('Kayıt başarıyla güncellendi.');
                 localStorage.setItem('crossTabUpdatedRecordId', this.editingRecordId); 
 
-            } else {
+            } 
+            // 7. Yeni Kayıt Ekle
+            else {
                 await this.saveIpRecordWithStrategy(recordData); 
             }
 
@@ -507,16 +520,28 @@ class DataEntryModule {
     }
 
     async addTransactionForNewRecord(recordId, ipType, hierarchy = 'parent') {
-        const TX_IDS = { trademark: '2', patent: '5', design: '8' };
+        const TX_IDS = { trademark: '2', patent: '5', design: '8', suit: '14' };
         try {
-            await supabase.from('transactions').insert({
+            const txPayload = {
+                id: crypto.randomUUID(), // 🔥 ÇÖZÜM: Zorunlu ID eklendi
                 ip_record_id: String(recordId),
                 transaction_type_id: String(TX_IDS[ipType] || '2'),
                 description: hierarchy === 'child' ? 'Ülke başvurusu işlemi.' : 'Başvuru işlemi.',
                 transaction_hierarchy: hierarchy,
+                transaction_date: new Date().toISOString(), // 🔥 ÇÖZÜM: Zorunlu işlem tarihi eklendi
                 created_at: new Date().toISOString()
-            });
-        } catch (error) { console.error(`Transaction hatası:`, error); }
+            };
+
+            const { error } = await supabase.from('transactions').insert(txPayload);
+            
+            if (error) {
+                console.error("🔴 Transaction Ekleme Hatası:", error.message);
+            } else {
+                console.log("✅ İlk Transaction başarıyla oluşturuldu!");
+            }
+        } catch (error) { 
+            console.error(`Transaction yakalanan hata:`, error); 
+        }
     }
 
     populateOriginDropdown(dropdownId, selectedValue = 'TÜRKPATENT', ipType) {
@@ -927,9 +952,22 @@ class DataEntryModule {
             const hasApp = this.selectedApplicants.length > 0;
             const origin = document.getElementById('originSelect')?.value;
             const isInt = (origin === 'WIPO' || origin === 'ARIPO');
-            isComplete = txt && hasApp && (!isInt || this.selectedCountries.length > 0);
+            
+            if (this.editingRecordId) {
+                // 🔥 ÇÖZÜM: Düzenleme modundayken katı kuralları esnetiyoruz.
+                // Sadece marka adının (txt) boş olmaması kaydetmek için yeterlidir.
+                // Böylece WIPO kayıtlarında ülke seçimi vs. eksik görünse bile güncelleme yapılabilir.
+                isComplete = !!txt; 
+            } else {
+                // Yeni kayıt eklerken kurallar geçerli
+                isComplete = txt && hasApp && (!isInt || this.selectedCountries.length > 0);
+            }
         } else if (ipType === 'suit') {
-            isComplete = !!this.suitClientPerson && !!this.suitSpecificTaskType;
+            if (this.editingRecordId) {
+                isComplete = true; // Dava güncellemesinde de kilidi açıyoruz
+            } else {
+                isComplete = !!this.suitClientPerson && !!this.suitSpecificTaskType;
+            }
         } else {
             isComplete = !!document.getElementById(`${ipType}Title`)?.value;
         }
