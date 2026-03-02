@@ -365,11 +365,18 @@ export const personService = {
 // 2. İŞLEM TİPLERİ (TRANSACTION TYPES) SERVİSİ
 export const transactionTypeService = {
     async getTransactionTypes() {
+        const CACHE_KEY = 'transaction_types_cache';
+        if (window.localCache) {
+            const cached = await window.localCache.get(CACHE_KEY);
+            // 24 saat boyunca bu listeyi tekrar DB'den çekme
+            if (cached && cached.data && (Date.now() - cached.timestamp < 86400000)) return { success: true, data: cached.data };
+        }
+
         const { data, error } = await supabase.from('transaction_types').select('*');
         if (error) return { success: false, data: [] };
         
         const mappedData = data.map(t => ({
-            id: String(t.id), // 🔥 ÇÖZÜM: Arayüz eşleşebilsin diye String'e çevrildi
+            id: String(t.id),
             name: t.name,
             alias: t.alias,
             ipType: t.ip_type, 
@@ -380,6 +387,8 @@ export const transactionTypeService = {
             code: t.id, 
             ...t.details 
         }));
+
+        if (window.localCache) await window.localCache.set(CACHE_KEY, { timestamp: Date.now(), data: mappedData });
         return { success: true, data: mappedData };
     }
 };
@@ -387,10 +396,19 @@ export const transactionTypeService = {
 // 3. ORTAK (COMMON) VERİLER SERVİSİ
 export const commonService = {
     async getCountries() {
+        const CACHE_KEY = 'countries_cache';
+        if (window.localCache) {
+            const cached = await window.localCache.get(CACHE_KEY);
+            // 24 saat boyunca ülkeleri tekrar DB'den çekme
+            if (cached && cached.data && (Date.now() - cached.timestamp < 86400000)) return { success: true, data: cached.data };
+        }
+
         const { data, error } = await supabase.from('common').select('data').eq('id', 'countries').single();
         if (error || !data) return { success: false, data: [] };
-        // Veriyi JSONB olarak kaydetmiştik, aynen çıkarıyoruz
-        return { success: true, data: data.data.list || [] };
+        
+        const list = data.data.list || [];
+        if (window.localCache) await window.localCache.set(CACHE_KEY, { timestamp: Date.now(), data: list });
+        return { success: true, data: list };
     }
 };
 
@@ -399,34 +417,26 @@ export const commonService = {
 // ==========================================
 export const ipRecordsService = {
     
-    // A) Tüm Portföyü Getir (Listeleme İçin) - SON VE TEMİZ VERSİYON
+// A) Tüm Portföyü Getir (Listeleme İçin) - TAMAMEN TEMİZLENMİŞ VERSİYON
     async getRecords(forceRefresh = false) {
-        const CACHE_KEY = 'ip_records_cache';
-        const TTL_MS = 30 * 60 * 1000;
 
-        if (!forceRefresh && window.localCache) {
-            const cachedObj = await window.localCache.get(CACHE_KEY);
-            if (cachedObj && cachedObj.timestamp && cachedObj.data) {
-                if ((Date.now() - cachedObj.timestamp) < TTL_MS) {
-                    return { success: true, data: cachedObj.data, from: 'cache' };
-                }
-            }
-        }
-
-        // 🔥 ÇÖZÜM 1: ip_record_bulletins tabloya eklendi
-        const { data, error } = await supabase
+        const { data, count, error } = await supabase
             .from('ip_records')
             .select(`
-                *,
-                ip_record_trademark_details (*),
+                id, ip_type, origin, status, portfolio_status, record_owner_type,
+                application_number, application_date, registration_number, registration_date, renewal_date,
+                country_code, wipo_ir, aripo_ir, transaction_hierarchy, parent_id, created_at, updated_at,
+                ip_record_trademark_details ( brand_name, brand_image_url ),
                 ip_record_applicants ( persons ( id, name, type ) ),
                 ip_record_classes ( class_no ),
                 ip_record_bulletins ( bulletin_no, bulletin_date )
-            `)
-            .limit(20000)
+            `, { count: 'exact' })
             .order('created_at', { ascending: false });
 
-        if (error) return { success: false, data: [] };
+        if (error) {
+            console.error("Kayıtlar çekilemedi:", error);
+            return { success: false, data: [] };
+        }
 
         const mappedData = data.map(record => {
             let applicantsArray = record.ip_record_applicants
@@ -446,7 +456,6 @@ export const ipRecordsService = {
                 imageUrl = `https://guicrctynauzxhyfpdfe.supabase.co/storage/v1/object/public/brand_images/${record.id}/logo.png`;
             }
 
-            // 🔥 Bülten Verilerini Eşleme
             let bNo = null;
             let bDate = null;
             if (record.ip_record_bulletins && record.ip_record_bulletins.length > 0) {
@@ -488,10 +497,10 @@ export const ipRecordsService = {
             };
         });
 
-        if (window.localCache) await window.localCache.set(CACHE_KEY, { timestamp: Date.now(), data: mappedData });
+        // 🔥 HATA BURADAYDI: Cache yazma satırı tamamen silindi, veriler doğrudan dönüyor!
         return { success: true, data: mappedData, from: 'server' };
     },
-
+    
     // B) Tek Bir Kaydı Çeker (Detay Sayfası İçin)
     async getRecordById(id) {
         const { data: record, error } = await supabase
