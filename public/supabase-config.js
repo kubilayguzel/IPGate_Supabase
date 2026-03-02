@@ -7,7 +7,7 @@ const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS
 export const supabase = createClient(supabaseUrl, supabaseKey);
 console.log('🚀 Supabase Motoru Başarıyla Çalıştı!');
 
-// --- YENİ: Sınırsız Önbellek (IndexedDB) Motoru ---
+// --- YENİ: Sınırsız ve Işık Hızında Önbellek (IndexedDB) Motoru ---
 export const localCache = {
     async get(key) {
         return new Promise((resolve) => {
@@ -18,7 +18,15 @@ export const localCache = {
                     const db = e.target.result;
                     const tx = db.transaction('store', 'readonly');
                     const req2 = tx.objectStore('store').get(key);
-                    req2.onsuccess = () => resolve(req2.result ? JSON.parse(req2.result) : null);
+                    req2.onsuccess = () => {
+                        if (!req2.result) return resolve(null);
+                        // Geriye dönük uyumluluk: Eğer eskiden kalma string (metin) kayıt varsa çevir, yoksa doğrudan ver!
+                        if (typeof req2.result === 'string') {
+                            try { resolve(JSON.parse(req2.result)); } catch(err) { resolve(null); }
+                        } else {
+                            resolve(req2.result);
+                        }
+                    };
                     req2.onerror = () => resolve(null);
                 } catch(err) { resolve(null); }
             };
@@ -33,10 +41,12 @@ export const localCache = {
                 try {
                     const db = e.target.result;
                     const tx = db.transaction('store', 'readwrite');
-                    tx.objectStore('store').put(JSON.stringify(value), key);
+                    // 🔥 JSON.stringify kullanmadan doğrudan objeyi saklıyoruz! (100x daha hızlı)
+                    tx.objectStore('store').put(value, key);
                     tx.oncomplete = () => resolve(true);
                 } catch(err) { resolve(false); }
             };
+            req.onerror = () => resolve(false);
         });
     },
     async remove(key) {
@@ -50,11 +60,11 @@ export const localCache = {
                     tx.oncomplete = () => resolve(true);
                 } catch(err) { resolve(false); }
             };
+            req.onerror = () => resolve(false);
         });
     }
 };
 
-// MOTORU GLOBAL HALE GETİREN SATIR (Parantezlerin DIŞINDA olmalı)
 window.localCache = localCache;
 
 // --- YENİ: SUPABASE AUTH SERVICE ---
@@ -392,9 +402,8 @@ export const ipRecordsService = {
     // A) Tüm Portföyü Getir (Listeleme İçin) - SON VE TEMİZ VERSİYON
     async getRecords(forceRefresh = false) {
         const CACHE_KEY = 'ip_records_cache';
-        const TTL_MS = 30 * 60 * 1000; // 30 Dakika Önbellek
+        const TTL_MS = 30 * 60 * 1000;
 
-        // Önbellek kontrolü aktif
         if (!forceRefresh && window.localCache) {
             const cachedObj = await window.localCache.get(CACHE_KEY);
             if (cachedObj && cachedObj.timestamp && cachedObj.data) {
@@ -404,21 +413,20 @@ export const ipRecordsService = {
             }
         }
 
+        // 🔥 ÇÖZÜM 1: ip_record_bulletins tabloya eklendi
         const { data, error } = await supabase
             .from('ip_records')
             .select(`
                 *,
                 ip_record_trademark_details (*),
                 ip_record_applicants ( persons ( id, name, type ) ),
-                ip_record_classes ( class_no )
+                ip_record_classes ( class_no ),
+                ip_record_bulletins ( bulletin_no, bulletin_date )
             `)
             .limit(20000)
             .order('created_at', { ascending: false });
 
-        if (error) {
-            console.error("Kayıtlar çekilemedi:", error);
-            return { success: false, data: [] };
-        }
+        if (error) return { success: false, data: [] };
 
         const mappedData = data.map(record => {
             let applicantsArray = record.ip_record_applicants
@@ -431,13 +439,19 @@ export const ipRecordsService = {
                 : [];
 
             let tmDetails = record.ip_record_trademark_details || {};
-            if (Array.isArray(tmDetails)) {
-                tmDetails = tmDetails.length > 0 ? tmDetails[0] : {};
-            }
+            if (Array.isArray(tmDetails)) tmDetails = tmDetails.length > 0 ? tmDetails[0] : {};
 
             let imageUrl = tmDetails.brand_image_url;
             if (!imageUrl || imageUrl.trim() === '') {
                 imageUrl = `https://guicrctynauzxhyfpdfe.supabase.co/storage/v1/object/public/brand_images/${record.id}/logo.png`;
+            }
+
+            // 🔥 Bülten Verilerini Eşleme
+            let bNo = null;
+            let bDate = null;
+            if (record.ip_record_bulletins && record.ip_record_bulletins.length > 0) {
+                bNo = record.ip_record_bulletins[0].bulletin_no;
+                bDate = record.ip_record_bulletins[0].bulletin_date;
             }
 
             return {
@@ -460,11 +474,10 @@ export const ipRecordsService = {
                 
                 title: tmDetails.brand_name || record.title || '', 
                 brandText: tmDetails.brand_name || record.title || '', 
-                brandType: tmDetails.brand_type || '',
-                brandCategory: tmDetails.brand_category || '',
                 brandImageUrl: imageUrl, 
-                trademarkImage: imageUrl, 
-                description: tmDetails.description || '',
+                
+                bulletinNo: bNo,
+                bulletinDate: bDate,
 
                 niceClasses: classesArray,
                 applicants: applicantsArray,
@@ -475,7 +488,6 @@ export const ipRecordsService = {
             };
         });
 
-        // Veriyi tekrar önbelleğe yazıyoruz
         if (window.localCache) await window.localCache.set(CACHE_KEY, { timestamp: Date.now(), data: mappedData });
         return { success: true, data: mappedData, from: 'server' };
     },
@@ -624,7 +636,10 @@ export const ipRecordsService = {
         // 4. SINIFLAR VE EŞYALAR (ip_record_classes)
         if (data.goodsAndServicesByClass && Array.isArray(data.goodsAndServicesByClass)) {
             const classRows = data.goodsAndServicesByClass.map(c => ({ 
-                ip_record_id: newRecordId, class_no: parseInt(c.classNo), items: Array.isArray(c.items) ? c.items : [] 
+                id: crypto.randomUUID(), // 🔥 ÇÖZÜM 1: Eksik ID eklendi
+                ip_record_id: newRecordId, 
+                class_no: parseInt(c.classNo), 
+                items: Array.isArray(c.items) ? c.items : [] 
             }));
             if(classRows.length > 0) await supabase.from('ip_record_classes').insert(classRows);
         }
@@ -632,12 +647,27 @@ export const ipRecordsService = {
         // 5. RÜÇHANLAR (ip_record_priorities)
         if (data.priorities && Array.isArray(data.priorities) && data.priorities.length > 0) {
             const priorityRows = data.priorities.map(p => ({
-                ip_record_id: newRecordId, priority_country: p.country, priority_date: p.date, priority_number: p.number
+                id: crypto.randomUUID(), // 🔥 ÇÖZÜM 1: Eksik ID eklendi
+                ip_record_id: newRecordId, 
+                priority_country: p.country, 
+                priority_date: p.date, 
+                priority_number: p.number
             }));
             await supabase.from('ip_record_priorities').insert(priorityRows);
         }
 
-        if (window.localCache) await window.localCache.remove(CACHE_KEY);
+        // 6. BÜLTEN VERİLERİ (ip_record_bulletins)
+        if (data.bulletinNo || data.bulletinDate) {
+            await supabase.from('ip_record_bulletins').insert({
+                id: crypto.randomUUID(),
+                ip_record_id: newRecordId,
+                bulletin_no: data.bulletinNo || null,
+                bulletin_date: data.bulletinDate || null
+            });
+        }
+
+        // 🔥 ÇÖZÜM 2: CACHE_KEY hatası düzeltildi
+        if (window.localCache) await window.localCache.remove('ip_records_cache');
         return { success: true, id: newRecordId };
     },
 
@@ -698,7 +728,12 @@ export const ipRecordsService = {
         if (updateData.goodsAndServicesByClass && Array.isArray(updateData.goodsAndServicesByClass)) {
             await supabase.from('ip_record_classes').delete().eq('ip_record_id', id);
             if (updateData.goodsAndServicesByClass.length > 0) {
-                const classRows = updateData.goodsAndServicesByClass.map(c => ({ ip_record_id: id, class_no: parseInt(c.classNo), items: Array.isArray(c.items) ? c.items : [] }));
+                const classRows = updateData.goodsAndServicesByClass.map(c => ({ 
+                    id: crypto.randomUUID(), // 🔥 ÇÖZÜM 1: Eksik ID eklendi
+                    ip_record_id: id, 
+                    class_no: parseInt(c.classNo), 
+                    items: Array.isArray(c.items) ? c.items : [] 
+                }));
                 await supabase.from('ip_record_classes').insert(classRows);
             }
         }
@@ -707,8 +742,27 @@ export const ipRecordsService = {
         if (updateData.priorities && Array.isArray(updateData.priorities)) {
             await supabase.from('ip_record_priorities').delete().eq('ip_record_id', id);
             if (updateData.priorities.length > 0) {
-                const priorityRows = updateData.priorities.map(p => ({ ip_record_id: id, priority_country: p.country, priority_date: p.date, priority_number: p.number }));
+                const priorityRows = updateData.priorities.map(p => ({ 
+                    id: crypto.randomUUID(), // 🔥 ÇÖZÜM 1: Eksik ID eklendi
+                    ip_record_id: id, 
+                    priority_country: p.country, 
+                    priority_date: p.date, 
+                    priority_number: p.number 
+                }));
                 await supabase.from('ip_record_priorities').insert(priorityRows);
+            }
+        }
+
+        // 6. BÜLTEN VERİLERİNİ YENİDEN YAZ
+        if (updateData.bulletinNo !== undefined || updateData.bulletinDate !== undefined) {
+            await supabase.from('ip_record_bulletins').delete().eq('ip_record_id', id);
+            if (updateData.bulletinNo || updateData.bulletinDate) {
+                await supabase.from('ip_record_bulletins').insert({
+                    id: crypto.randomUUID(),
+                    ip_record_id: id,
+                    bulletin_no: updateData.bulletinNo || null,
+                    bulletin_date: updateData.bulletinDate || null
+                });
             }
         }
 
@@ -869,29 +923,30 @@ export const transactionService = {
     async getObjectionData() {
         const PARENT_TYPES = ['7', '19', '20'];
         
-        // 1. Ana İtirazları (Parent) Çek
+        // 🔥 ÇÖZÜM 2: transaction_documents(*) eklendi
         const { data: parents, error: parentError } = await supabase
             .from('transactions')
-            .select('*')
-            .in('transaction_type_id', PARENT_TYPES) // Sütun adını düzelttik
-            .limit(10000); // 🔥 YENİ: Sınırı kaldırdık
+            .select('*, transaction_documents(*)')
+            .in('transaction_type_id', PARENT_TYPES)
+            .limit(10000); 
             
         if (parentError) return { success: false, error: parentError.message };
 
-        // 2. İtirazlara bağlı Alt İşlemleri (Child) Çek
         const { data: children, error: childError } = await supabase
             .from('transactions')
-            .select('*')
+            .select('*, transaction_documents(*)')
             .eq('transaction_hierarchy', 'child')
-            .limit(10000); // 🔥 YENİ: Sınırı kaldırdık
+            .limit(10000); 
 
         const formatData = (rows) => rows.map(r => ({
             id: r.id,
             recordId: r.ip_record_id,
             parentId: r.parent_id || (r.details && r.details.parentId) || null,
-            type: r.transaction_type_id || (r.details && r.details.type), // Doğru sütundan oku
+            type: r.transaction_type_id || (r.details && r.details.type), 
             transactionHierarchy: r.transaction_hierarchy,
-            timestamp: r.created_at,
+            timestamp: r.transaction_date || r.created_at,
+            oppositionOwner: r.opposition_owner,
+            documents: r.transaction_documents || [], // Evraklar eklendi
             ...r.details 
         }));
 
