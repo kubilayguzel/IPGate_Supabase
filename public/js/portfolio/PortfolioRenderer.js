@@ -118,8 +118,7 @@ export class PortfolioRenderer {
 
         const countryName = this.dataManager.getCountryName(record.country || record.countryCode);
         const imgHtml = isTrademarkTab ? 
-            `<td><div class="trademark-image-wrapper">${record.brandImageUrl ? `<img class="trademark-image-thumbnail" src="${record.brandImageUrl}" loading="lazy">` : ''}</div></td>` : '';
-
+            `<td><div class="trademark-image-wrapper">${record.brandImageUrl ? `<img class="trademark-image-thumbnail" src="${record.brandImageUrl}" loading="lazy" decoding="async" width="40" height="40" alt="Logo">` : ''}</div></td>` : '';
         const isTP = [record.origin, record.source, record.country].map(s => (s||'').toUpperCase()).some(s => s.includes('TURKPATENT') || s.includes('TÜRKPATENT') || s === 'TR');
         
         const viewBtnTitle = isTP ? "TürkPatent'te Sorgula" : "Detayı Görüntüle";
