@@ -37,24 +37,42 @@ class CreateTaskController {
 
     async init() {
         try {
-            // 🔥 YENİ: Supabase Oturum Kontrolü
-            const user = await waitForAuthUser({ requireAuth: true, redirectTo: 'index.html', graceMs: 1200 });
-            if (!user) return;
-            
-            this.state.currentUser = user;
-            await loadSharedLayout({ activeMenuLink: 'create-task.html' });
-
-            const initialData = await this.dataManager.loadInitialData();
-            Object.assign(this.state, initialData);
-            this.setupEventListeners();
-            this.setupIpRecordSearch();
-
-            const mainSelect = document.getElementById('mainIpType');
-            if (mainSelect && mainSelect.value) {
-                mainSelect.dispatchEvent(new Event('change', { bubbles: true }));
+            // 🔥 1. Supabase Asenkron Auth Kontrolü
+            const user = await waitForAuthUser();
+            if (!user) {
+                console.warn("Kullanıcı oturumu bulunamadı, yönlendiriliyor...");
+                window.location.href = 'index.html';
+                return;
             }
-        } catch (e) { 
-            console.error('Init hatası:', e); 
+            this.state.currentUser = user;
+
+            // 2. Arayüz Olaylarını (Listener) Başlat
+            this.setupEventListeners();
+            initTaskDatePickers();
+            
+            // 3. Veritabanından Gerekli İlk Verileri Çek
+            const data = await this.dataManager.loadInitialData();
+            
+            this.state.allIpRecords = data.allIpRecords;
+            this.state.allPersons = data.allPersons;
+            this.state.allUsers = data.allUsers;
+            this.state.allTransactionTypes = data.allTransactionTypes;
+            this.state.allCountries = data.allCountries;
+
+            // 4. URL'den Gelen Parametreler Varsa İşle (Portföyden direkt görev oluşturma vb.)
+            await this.handleUrlParams();
+
+            // 5. Tahakkuk (Accrual) Modülünü Başlat
+            this.accrualFormManager = new AccrualFormManager(
+                this.state.allPersons, 
+                this.state.allTransactionTypes
+            );
+
+            console.log("✅ Create Task Modülü Başarıyla Yüklendi!");
+
+        } catch (error) {
+            console.error("❌ Başlatma Hatası:", error);
+            alert("Sayfa yüklenirken bir hata oluştu. Lütfen sayfayı yenileyin.");
         }
     }
 
