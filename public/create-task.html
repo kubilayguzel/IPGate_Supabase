@@ -109,6 +109,72 @@ body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #333
     cursor: default;
 }
 
+/* --- KART STİLLERİ --- */
+.selection-card {
+    background: #fff;
+    border: 2px solid #e1e8ed;
+    border-radius: 15px;
+    padding: 15px 10px; /* 🔥 Padding'i küçülttük */
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    height: 100%;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+}
+
+.selection-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+}
+
+/* Standart aktif durumu yedeği (Özel renkler ezecek) */
+.selection-card.active { border-color: #1e3c72; background: #f0f4f8; }
+
+.selection-card .card-icon {
+    font-size: 2rem; /* 🔥 İkonları biraz küçülttük */
+    margin-bottom: 10px;
+    color: #6c757d;
+    transition: color 0.3s;
+}
+
+.selection-card .card-title {
+    font-weight: 600;
+    font-size: 1rem; /* 🔥 Başlık boyutunu küçülttük */
+    margin-bottom: 4px;
+    color: #333;
+}
+
+.selection-card .card-desc {
+    font-size: 0.75rem; /* 🔥 Açıklamayı küçülttük */
+    color: #666;
+    line-height: 1.2;
+}
+
+/* 🔥 YENİ: KARTLARA ÖZEL RENKLENDİRMELER */
+/* Marka (Mavi) */
+.selection-card.color-blue:hover, .selection-card.color-blue.active { border-color: #0d6efd; background: #f0f7ff; }
+.selection-card.color-blue:hover .card-icon, .selection-card.color-blue.active .card-icon { color: #0d6efd; }
+
+/* Patent (Turuncu) */
+.selection-card.color-orange:hover, .selection-card.color-orange.active { border-color: #fd7e14; background: #fff8f0; }
+.selection-card.color-orange:hover .card-icon, .selection-card.color-orange.active .card-icon { color: #fd7e14; }
+
+/* Tasarım (Yeşil) */
+.selection-card.color-green:hover, .selection-card.color-green.active { border-color: #198754; background: #f0fdf4; }
+.selection-card.color-green:hover .card-icon, .selection-card.color-green.active .card-icon { color: #198754; }
+
+/* Dava (Kırmızı) */
+.selection-card.color-red:hover, .selection-card.color-red.active { border-color: #dc3545; background: #fff0f1; }
+.selection-card.color-red:hover .card-icon, .selection-card.color-red.active .card-icon { color: #dc3545; }
+
+/* Diğer (Mor) */
+.selection-card.color-purple:hover, .selection-card.color-purple.active { border-color: #6f42c1; background: #f8f0ff; }
+.selection-card.color-purple:hover .card-icon, .selection-card.color-purple.active .card-icon { color: #6f42c1; }
+
 /* --- MEVCUT FORM YAPISI --- */
 .form-container { background: none; box-shadow: none; padding: 0; }
 .section-card {
@@ -170,32 +236,39 @@ body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #333
                         <h3 class="section-title">1. İş Türü Seçimi</h3>
                         
                         <div class="row mb-4" id="mainTypeCardContainer">
-                            <div class="col-md-3 mb-3">
-                                <div class="selection-card" onclick="selectMainType('trademark', this)">
+                            <div class="col mb-2">
+                                <div class="selection-card color-blue" onclick="selectMainType('trademark', this)">
                                     <i class="fas fa-registered card-icon"></i>
                                     <div class="card-title">Marka</div>
-                                    <div class="card-desc">Başvuru, devir, itiraz ve diğer marka işlemleri.</div>
+                                    <div class="card-desc">Başvuru, devir ve marka işlemleri.</div>
                                 </div>
                             </div>
-                            <div class="col-md-3 mb-3">
-                                <div class="selection-card" onclick="selectMainType('patent', this)">
+                            <div class="col mb-2">
+                                <div class="selection-card color-orange" onclick="selectMainType('patent', this)">
                                     <i class="fas fa-lightbulb card-icon"></i>
-                                    <div class="card-title">Patent / Faydalı Model</div>
-                                    <div class="card-desc">Buluşlarınız için tescil ve süreç yönetimi.</div>
+                                    <div class="card-title">Patent</div>
+                                    <div class="card-desc">Buluşlar ve tescil süreçleri.</div>
                                 </div>
                             </div>
-                            <div class="col-md-3 mb-3">
-                                <div class="selection-card" onclick="selectMainType('design', this)">
+                            <div class="col mb-2">
+                                <div class="selection-card color-green" onclick="selectMainType('design', this)">
                                     <i class="fas fa-drafting-compass card-icon"></i>
                                     <div class="card-title">Tasarım</div>
-                                    <div class="card-desc">Endüstriyel tasarım tescil işlemleri.</div>
+                                    <div class="card-desc">Endüstriyel tasarım tescili.</div>
                                 </div>
                             </div>
-                            <div class="col-md-3 mb-3">
-                                <div class="selection-card" onclick="selectMainType('suit', this)">
+                            <div class="col mb-2">
+                                <div class="selection-card color-red" onclick="selectMainType('suit', this)">
                                     <i class="fas fa-gavel card-icon"></i>
                                     <div class="card-title">Dava</div>
                                     <div class="card-desc">Hukuki süreç ve dava takibi.</div>
+                                </div>
+                            </div>
+                            <div class="col mb-2">
+                                <div class="selection-card color-purple" onclick="selectMainType('other', this)">
+                                    <i class="fas fa-ellipsis-h card-icon"></i>
+                                    <div class="card-title">Diğer</div>
+                                    <div class="card-desc">Domain ve danışmanlıklar.</div>
                                 </div>
                             </div>
                         </div>
