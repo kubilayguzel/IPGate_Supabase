@@ -417,26 +417,27 @@ export const commonService = {
 // ==========================================
 export const ipRecordsService = {
     
-// A) Tüm Portföyü Getir (Listeleme İçin) - TAMAMEN TEMİZLENMİŞ VERSİYON
-    async getRecords(forceRefresh = false) {
+// A) Tüm Portföyü Getir (Listeleme İçin)
+        async getRecords(forceRefresh = false) {
+            
+            // Sadece Portföy listesinde gösterilen kolonlar çekilir (Minimal Payload)
+            const { data, error } = await supabase
+                .from('ip_records')
+                .select(`
+                    id, ip_type, origin, status, portfolio_status, record_owner_type,
+                    application_number, application_date, registration_number, registration_date, renewal_date,
+                    country_code, wipo_ir, aripo_ir, transaction_hierarchy, parent_id, created_at, updated_at,
+                    ip_record_trademark_details ( brand_name, brand_image_url ),
+                    ip_record_applicants ( persons ( id, name, type ) ),
+                    ip_record_classes ( class_no ),
+                    ip_record_bulletins ( bulletin_no, bulletin_date )
+                `)
+                .order('created_at', { ascending: false });
 
-        const { data, count, error } = await supabase
-            .from('ip_records')
-            .select(`
-                id, ip_type, origin, status, portfolio_status, record_owner_type,
-                application_number, application_date, registration_number, registration_date, renewal_date,
-                country_code, wipo_ir, aripo_ir, transaction_hierarchy, parent_id, created_at, updated_at,
-                ip_record_trademark_details ( brand_name, brand_image_url ),
-                ip_record_applicants ( persons ( id, name, type ) ),
-                ip_record_classes ( class_no ),
-                ip_record_bulletins ( bulletin_no, bulletin_date )
-            `, { count: 'exact' })
-            .order('created_at', { ascending: false });
-
-        if (error) {
-            console.error("Kayıtlar çekilemedi:", error);
-            return { success: false, data: [] };
-        }
+            if (error) {
+                console.error("Kayıtlar çekilemedi:", error);
+                return { success: false, data: [] };
+            }
 
         const mappedData = data.map(record => {
             let applicantsArray = record.ip_record_applicants
