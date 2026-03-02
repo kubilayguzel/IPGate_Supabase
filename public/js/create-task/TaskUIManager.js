@@ -576,7 +576,7 @@ export class TaskUIManager {
             <div class="form-grid">
                 <div class="form-group"><label class="form-label">Öncelik</label><select id="taskPriority" class="form-select"><option value="medium">Orta</option><option value="high">Yüksek</option></select></div>
                 <div class="form-group"><label class="form-label">Atanacak</label><select id="assignedTo" class="form-select"><option value="">Seçiniz...</option></select></div>
-                <div class="form-group full-width"><label class="form-label">Son Tarih</label><input type="text" id="taskDueDate" class="form-input placeholder="gg.aa.yyyy" data-datepicker"></div>
+                <div class="form-group full-width"><label class="form-label">Son Tarih</label><input type="text" id="taskDueDate" class="form-input datepicker" placeholder="gg.aa.yyyy" autocomplete="off">
             </div>
         </div>`;
     }
