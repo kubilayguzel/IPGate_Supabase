@@ -496,27 +496,74 @@ class DataEntryModule {
         } catch (error) { console.error('Senkronizasyon ana hatası:', error); }
     }
 
+    // Parent'taki değişiklikleri Child'lara aktarır
     async propagateUpdatesToChildren(parentId, parentData) {
+        console.log('🔄 Child Güncelleme (Propagation) başlatılıyor...');
         try {
-            const { data: children } = await supabase.from('ip_records').select('id').eq('parent_id', parentId).eq('transaction_hierarchy', 'child');
-            if (!children || children.length === 0) return;
+            // Sadece bu ana kayda bağlı alt dosyaların (child) ID'lerini çekiyoruz
+            const { data: children, error: fetchErr } = await supabase.from('ip_records')
+                .select('id')
+                .eq('parent_id', parentId)
+                .eq('transaction_hierarchy', 'child');
+                
+            if (fetchErr) throw fetchErr;
 
-            // 🔥 DÜZELTME: 'details' sütunu kaldırıldı ve sadece veritabanında var olan sabit sütunlar eşleştirildi
-            const updates = {
-                title: parentData.title || parentData.brandText || null,
-                brand_name: parentData.title || parentData.brandText || null,
-                brand_text: parentData.title || parentData.brandText || null,
+            if (!children || children.length === 0) {
+                console.log('⚠️ Güncellenecek child kayıt bulunamadı.');
+                return;
+            }
+
+            const irNumber = parentData.wipoIR || parentData.wipo_ir || parentData.aripoIR || parentData.aripo_ir || parentData.internationalRegNumber || parentData.registrationNumber;
+
+            // 🔥 1. ADIM: SADECE ip_records TABLOSUNDA VAR OLAN SÜTUNLAR (Crash önlendi)
+            const ipRecordUpdates = {
                 portfolio_status: parentData.status || null,
                 application_date: parentData.applicationDate || null,
                 registration_date: parentData.registrationDate || null,
                 renewal_date: parentData.renewalDate || null,
-                brand_image_url: parentData.brandImageUrl || null,
                 updated_at: new Date().toISOString()
             };
 
-            const updatePromises = children.map(child => supabase.from('ip_records').update(updates).eq('id', child.id));
-            await Promise.all(updatePromises);
-        } catch (error) { console.error('Child güncelleme hatası:', error); }
+            if (parentData.origin === 'WIPO' && irNumber) {
+                ipRecordUpdates.wipo_ir = irNumber;
+            } else if (parentData.origin === 'ARIPO' && irNumber) {
+                ipRecordUpdates.aripo_ir = irNumber;
+            }
+
+            Object.keys(ipRecordUpdates).forEach(key => {
+                if (ipRecordUpdates[key] === undefined) delete ipRecordUpdates[key];
+            });
+
+            // 🔥 2. ADIM: SADECE ip_record_trademark_details TABLOSUNDA VAR OLAN SÜTUNLAR
+            const trademarkDetailsUpdates = {
+                brand_name: parentData.title || parentData.brandText || null,
+                brand_image_url: parentData.brandImageUrl || null,
+                description: parentData.description || null
+            };
+
+            Object.keys(trademarkDetailsUpdates).forEach(key => {
+                if (trademarkDetailsUpdates[key] === undefined) delete trademarkDetailsUpdates[key];
+            });
+
+            // 3. ADIM: Child'ları doğru tablolara güncelliyoruz
+            for (const child of children) {
+                // Ana verileri (WIPO IR dahil) ip_records tablosuna yaz
+                if (Object.keys(ipRecordUpdates).length > 0) {
+                    await supabase.from('ip_records').update(ipRecordUpdates).eq('id', child.id);
+                }
+                
+                // Marka detaylarını ilişkili tabloya yaz
+                if (Object.keys(trademarkDetailsUpdates).length > 0) {
+                    await supabase.from('ip_record_trademark_details')
+                                  .update(trademarkDetailsUpdates)
+                                  .eq('ip_record_id', child.id);
+                }
+            }
+
+            console.log(`✅ ${children.length} adet child kayda WIPO/ARIPO IR başarıyla işlendi.`);
+        } catch (error) { 
+            console.error('❌ Child güncelleme hatası:', error); 
+        }
     }
 
     async addTransactionForNewRecord(recordId, ipType, hierarchy = 'parent') {
