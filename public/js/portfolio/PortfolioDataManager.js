@@ -143,13 +143,14 @@ export class PortfolioDataManager {
         this.wipoGroups = { parents: new Map(), children: new Map() };
         this.allRecords.forEach(r => {
             if (r.origin === 'WIPO' || r.origin === 'ARIPO') {
-                const irNo = r.wipoIR || r.aripoIR;
-                if (!irNo) return;
+                // 🔥 ÇÖZÜM: Artık irNo (WIPO Numarası) yerine doğrudan kayıtların veritabanı ID'lerini (id ve parentId) kullanıyoruz!
                 if (r.transactionHierarchy === 'parent') {
-                    this.wipoGroups.parents.set(irNo, r);
-                } else if (r.transactionHierarchy === 'child') {
-                    if (!this.wipoGroups.children.has(irNo)) this.wipoGroups.children.set(irNo, []);
-                    this.wipoGroups.children.get(irNo).push(r);
+                    this.wipoGroups.parents.set(r.id, r);
+                } else if (r.transactionHierarchy === 'child' && r.parentId) {
+                    if (!this.wipoGroups.children.has(r.parentId)) {
+                        this.wipoGroups.children.set(r.parentId, []);
+                    }
+                    this.wipoGroups.children.get(r.parentId).push(r);
                 }
             }
         });
