@@ -184,6 +184,15 @@ export class TaskSubmitHandler {
                     // Task tablosundaki transaction_id'yi güncelle
                     await supabase.from('tasks').update({ transaction_id: txId }).eq('id', newTaskId);
                 }
+
+                // 🔥 ÇÖZÜM 2: WIPO/ARIPO alt kayıtları (child) için de teker teker transaction (işlem) oluştur
+                if (state.createdChildRecordIds && state.createdChildRecordIds.length > 0) {
+                    console.log(`🌐 ${state.createdChildRecordIds.length} adet Child (Alt) Kayıt için işlem (Transaction) oluşturuluyor...`);
+                    for (const childId of state.createdChildRecordIds) {
+                        // Aynı evraklar ve task detaylarıyla child için de transaction atıyoruz
+                        await this._addTransactionToPortfolio(childId, selectedTaskType, newTaskId, state, taskData.details.documents);
+                    }
+                }
             }
 
             await this._handleAccrualLogic(newTaskId, taskData.title, selectedTaskType, state, accrualData, isFreeTransaction);
@@ -559,6 +568,9 @@ export class TaskSubmitHandler {
         if (result.success && ['WIPO', 'ARIPO'].includes(origin) && selectedCountries && selectedCountries.length > 0) {
             console.log(`🌐 ${origin} Menşeli ${selectedCountries.length} adet Child (Alt) Kayıt Oluşturuluyor...`);
             
+            // 🔥 ÇÖZÜM 1: Oluşan alt kayıtların ID'lerini state üzerinde bir listede topluyoruz
+            state.createdChildRecordIds = [];
+
             for (const country of selectedCountries) {
                 const childId = this.generateUUID();
                 const childCountryCode = typeof country === 'object' ? (country.code || country.id || country.name) : country;
@@ -569,8 +581,6 @@ export class TaskSubmitHandler {
                     parentId: newRecordId, 
                     transactionHierarchy: 'child', 
                     countryCode: childCountryCode, 
-                    
-                    // 🔥 DÜZELTME: Child kayıtların referans numaraları da DB'de null kalmalı
                     wipoIR: null, 
                     aripoIR: null 
                 };
@@ -578,6 +588,8 @@ export class TaskSubmitHandler {
                 const childResult = await ipRecordsService.createRecordFromDataEntry(childData);
                 if (childResult.success) {
                     console.log(`✅ ${childCountryCode} için alt kayıt başarıyla oluşturuldu (ID: ${childId})`);
+                    // 🔥 Başarıyla oluşan child ID'sini listeye ekle
+                    state.createdChildRecordIds.push(childId);
                 } else {
                     console.error(`❌ ${childCountryCode} alt kaydı oluşturulamadı:`, childResult.error);
                 }
