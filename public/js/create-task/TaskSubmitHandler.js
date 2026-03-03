@@ -30,13 +30,15 @@ export class TaskSubmitHandler {
 
     async handleFormSubmit(e, state) {
         e.preventDefault();
-        console.log('🚀 [DEBUG] handleFormSubmit tetiklendi (TAM SUPABASE UYUMU).');
+        console.log('🚀 [DEBUG] handleFormSubmit tetiklendi (Tam Supabase Uyumlu).');
         
         const { 
             selectedTaskType, selectedIpRecord, selectedRelatedParties, selectedRelatedParty,
-            selectedApplicants, priorities, uploadedFiles,
-            accrualData, isFreeTransaction 
-        } = state;
+            selectedApplicants, priorities, uploadedFiles, accrualData
+        } = state; // isFreeTransaction state'den çıkarıldı
+
+        // 🔥 ÇÖZÜM 3: Ücretsiz işlem bilgisini anlık olarak DOM'dan (ekrandan) okuyoruz
+        const isFreeTransaction = document.getElementById('isFreeTransaction')?.checked || false;
 
         if (!selectedTaskType) { alert('Geçerli bir işlem tipi seçmediniz.'); return; }
 
@@ -417,15 +419,12 @@ export class TaskSubmitHandler {
     }
 
     async _handleTrademarkApplication(state, taskData) {
-        const { selectedApplicants, priorities, uploadedFiles } = state;
+        // 🔥 ÇÖZÜM 3: selectedCountries state'den çekildi
+        const { selectedApplicants, priorities, uploadedFiles, selectedCountries } = state;
         
-        // 🔥 ÇÖZÜM 2: Önce yeni IP Kaydının ID'sini oluşturuyoruz (Görsel klasörü için lazım)
         const newRecordId = this.generateUUID();
 
-        // 🔥 ÇÖZÜM 2: Marka Görselini Doğrudan 'brand_images' Bucket'ına ID Klasörüyle Yükle
         let brandImageUrl = null;
-        
-        // Önce özel marka görseli input'undan dosyayı al, yoksa genel formdan geleni al
         const brandImgInput = document.getElementById('brandExample');
         let brandFile = null;
         
@@ -437,11 +436,9 @@ export class TaskSubmitHandler {
 
         if (brandFile) {
             const cleanFileName = brandFile.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
-            // Yol: brand_images / KAYIT_ID / ZamanDamgasi_DosyaAdi.png
             const storagePath = `${newRecordId}/${Date.now()}_${cleanFileName}`;
             
             try {
-                // Doğrudan Supabase Storage API kullanarak brand_images'a yükle
                 const { error: uploadError } = await supabase.storage
                     .from('brand_images')
                     .upload(storagePath, brandFile, { cacheControl: '3600', upsert: true });
@@ -470,24 +467,26 @@ export class TaskSubmitHandler {
                 cleanBrandName = taskData.title.replace(/ Marka Başvurusu$/i, '').trim();
         }
 
+        // 🔥 ÇÖZÜM 1: Ülke ve Menşe (Origin) atamaları WIPO/ARIPO'ya uygun hale getirildi
         let origin = document.getElementById('originSelect')?.value || 'TÜRKPATENT';
         let originCountry = 'TR'; 
+        
         if (origin === 'Yurtdışı Ulusal' || origin === 'FOREIGN_NATIONAL') {
             origin = 'FOREIGN_NATIONAL';
             originCountry = document.getElementById('countrySelect')?.value || '';
+        } else if (origin === 'WIPO' || origin === 'ARIPO') {
+            originCountry = ''; // WIPO/ARIPO ana kaydı için ülke kodu boş (null) bırakılır
         }
 
         let goodsAndServicesByClass = [];
         try {
             const rawNiceClasses = getSelectedNiceClasses();
-            console.log("🔍 Seçilen Ham Sınıflar (UI):", rawNiceClasses);
             
             if (Array.isArray(rawNiceClasses)) {
                 goodsAndServicesByClass = rawNiceClasses.reduce((acc, item) => {
                     let classNo = NaN;
                     let rawText = '';
                     
-                    // Daha esnek Regex: "(05) Metin", "05", "Sınıf 5", "5 - Metin" gibi formatları yakalar
                     const match = String(item).match(/(?:sınıf|class)?\s*\(?(\d+)\)?\s*[-:]?\s*([\s\S]*)/i);
                     
                     if (match) {
@@ -516,7 +515,6 @@ export class TaskSubmitHandler {
                     return acc;
                 }, []).sort((a, b) => a.classNo - b.classNo);
             }
-            console.log("🚀 DB'ye Gönderilecek Sınıflar:", goodsAndServicesByClass);
         } catch (e) { 
             console.error("❌ Sınıf ayrıştırma hatası:", e);
         }
@@ -524,7 +522,7 @@ export class TaskSubmitHandler {
         const applicantsData = selectedApplicants.map(p => ({ id: p.id }));
 
         const newRecordData = {
-            id: newRecordId, // 🔥 Oluşturduğumuz ID'yi tabloya veriyoruz
+            id: newRecordId, 
             title: cleanBrandName,
             brandText: cleanBrandName,
             type: 'trademark',
@@ -532,6 +530,10 @@ export class TaskSubmitHandler {
             portfoyStatus: 'active',
             status: 'filed',
             applicationDate: new Date().toISOString().split('T')[0],
+            
+            // 🔥 DÜZELTME: Veritabanına '-' yerine temiz bir şekilde null gönderiyoruz
+            applicationNumber: null, 
+            
             renewalDate: (() => {
                 const d = new Date();
                 d.setFullYear(d.getFullYear() + 10);
@@ -540,17 +542,48 @@ export class TaskSubmitHandler {
             brandType: brandType,
             brandCategory: brandCategory,
             nonLatinAlphabet: nonLatin !== '', 
-            brandImageUrl: brandImageUrl, // Yüklenen URL
+            brandImageUrl: brandImageUrl, 
             origin: origin,
             countryCode: originCountry,
-            createdFrom: 'create_task', // 🔥 ÇÖZÜM 1: Doğrudan 'create_task' olarak DB'ye iletiliyor
+            createdFrom: 'create_task', 
             
             applicants: applicantsData,
             goodsAndServicesByClass: goodsAndServicesByClass,
             priorities: priorities || []
         };
 
+        // 1. Ana Kaydı (Parent) Veritabanına Yaz
         const result = await ipRecordsService.createRecordFromDataEntry(newRecordData);
+
+        // WIPO veya ARIPO seçildiyse, seçilen ülkeler için Child (Alt) kayıtları oluştur
+        if (result.success && ['WIPO', 'ARIPO'].includes(origin) && selectedCountries && selectedCountries.length > 0) {
+            console.log(`🌐 ${origin} Menşeli ${selectedCountries.length} adet Child (Alt) Kayıt Oluşturuluyor...`);
+            
+            for (const country of selectedCountries) {
+                const childId = this.generateUUID();
+                const childCountryCode = typeof country === 'object' ? (country.code || country.id || country.name) : country;
+                
+                const childData = {
+                    ...newRecordData,
+                    id: childId,
+                    parentId: newRecordId, 
+                    transactionHierarchy: 'child', 
+                    countryCode: childCountryCode, 
+                    
+                    // 🔥 DÜZELTME: Child kayıtların referans numaraları da DB'de null kalmalı
+                    wipoIR: null, 
+                    aripoIR: null 
+                };
+                
+                const childResult = await ipRecordsService.createRecordFromDataEntry(childData);
+                if (childResult.success) {
+                    console.log(`✅ ${childCountryCode} için alt kayıt başarıyla oluşturuldu (ID: ${childId})`);
+                } else {
+                    console.error(`❌ ${childCountryCode} alt kaydı oluşturulamadı:`, childResult.error);
+                }
+            }
+        }
+
         return result.success ? result.id : null;
     }
     
