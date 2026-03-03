@@ -11,8 +11,8 @@ import { showNotification, debounce } from '../../utils.js';
 import { FilenameParser } from './filename-parser.js';
 import { RecordMatcher } from './record-matcher.js';
 
-const UNINDEXED_PDFS_COLLECTION = 'unindexed_pdfs';
-const STORAGE_BUCKET = 'task_documents'; // Supabase'deki ortak dosya bucket'ı
+const INCOMING_DOCS_COLLECTION = 'incoming_documents';
+const STORAGE_BUCKET = 'documents';
 
 const generateUUID = () => crypto.randomUUID ? crypto.randomUUID() : 'id-' + Math.random().toString(36).substr(2, 16);
 
@@ -47,8 +47,13 @@ export class BulkIndexingModule {
 
     async init() {
         try {
-            this.currentUser = authService.getCurrentUser();
-            if (!this.currentUser) return;
+            // 🔥 ÇÖZÜM: Supabase Asenkron Oturum Kontrolü
+            const session = await authService.getCurrentSession();
+            this.currentUser = session?.user || null;
+            if (!this.currentUser) {
+                console.warn("Kullanıcı oturumu bulunamadı, indeksleme durduruldu.");
+                return;
+            }
 
             this.setupEventListeners();
             this.setupRealtimeListener(); 
@@ -723,7 +728,7 @@ export class BulkIndexingModule {
                     description: 'Başvuru',
                     date: this.selectedRecordManual.applicationDate || new Date().toISOString(),
                     timestamp: new Date().toISOString(),
-                    userId: this.currentUser.uid,
+                    userId: this.currentUser.id,
                     userName: this.currentUser.displayName || this.currentUser.email || 'Kullanıcı',
                     userEmail: this.currentUser.email
                 };
@@ -742,8 +747,7 @@ export class BulkIndexingModule {
                 for (const fileItem of filesToUpload) {
                     const file = fileItem.fileObject;
                     const cleanName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
-                    const storagePath = `manual_uploads/${this.currentUser.uid}/${Date.now()}_${cleanName}`;
-                    
+                    const storagePath = `incoming_documents/${this.currentUser.id}/${Date.now()}_${cleanName}`;                    
                     const { error: upErr } = await supabase.storage.from(STORAGE_BUCKET).upload(storagePath, file);
                     if (upErr) throw upErr;
                     
@@ -774,7 +778,7 @@ export class BulkIndexingModule {
                     transactionHierarchy: 'parent',
                     description: parent20Obj ? (parent20Obj.alias || parent20Obj.name) : 'Yayına İtiraz (Otomatik)',
                     timestamp: new Date().toISOString(),
-                    userId: this.currentUser.uid,
+                    userId: this.currentUser.id,
                     userEmail: this.currentUser.email
                 };
                 
@@ -789,7 +793,7 @@ export class BulkIndexingModule {
                         transactionHierarchy: 'parent',
                         description: parentTypeObj ? (parentTypeObj.alias || parentTypeObj.name) : 'Ana İşlem',
                         timestamp: new Date().toISOString(),
-                        userId: this.currentUser.uid,
+                        userId: this.currentUser.id,
                         userEmail: this.currentUser.email
                     };
                     const pResult = await this._addTransaction(this.selectedRecordManual.id, newParentData);
@@ -811,7 +815,7 @@ export class BulkIndexingModule {
                 notes: notes || '',
                 timestamp: new Date().toISOString(),
                 documents: uploadedDocuments,
-                userId: this.currentUser.uid,
+                userId: this.currentUser.id,
                 userName: this.currentUser.displayName || this.currentUser.email || 'Kullanıcı',
                 userEmail: this.currentUser.email
             };
@@ -917,8 +921,7 @@ export class BulkIndexingModule {
         try {
             const id = generateUUID();
             const cleanName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
-            const storagePath = `manual_uploads/${this.currentUser.uid}/${Date.now()}_${cleanName}`;
-            
+            const storagePath = `incoming_documents/${this.currentUser.id}/${Date.now()}_${cleanName}`;            
             // Storage'a Yükle
             const { error: uploadError } = await supabase.storage.from(STORAGE_BUCKET).upload(storagePath, file);
             if (uploadError) throw uploadError;
@@ -940,28 +943,20 @@ export class BulkIndexingModule {
                 }
             }
             
-            const pdfData = {
+        const pdfData = {
                 id: id,
                 file_name: file.name,
-                download_url: downloadURL,
-                created_at: new Date().toISOString(),
-                user_id: this.currentUser.uid,
-                user_email: this.currentUser.email,
+                file_url: downloadURL,
+                file_path: storagePath,
+                document_source: 'manual',
                 status: 'pending',
-                dosya_no: extractedAppNumber || null,
-                details: {
-                    source: 'manual', 
-                    file_path: storagePath,
-                    file_size: file.size,
-                    is_etebs: false,
-                    extracted_app_number: extractedAppNumber || null,
-                    matched_record_id: matchedRecordId, 
-                    matched_record_display: matchedRecordDisplay,
-                    record_owner_type: recordOwnerType
-                }
+                application_number: extractedAppNumber || null,
+                ip_record_id: matchedRecordId || null,
+                user_id: this.currentUser.id, // .uid yerine .id
+                created_at: new Date().toISOString()
             };
             
-            const { error: dbError } = await supabase.from(UNINDEXED_PDFS_COLLECTION).insert(pdfData);
+            const { error: dbError } = await supabase.from(INCOMING_DOCS_COLLECTION).insert(pdfData);
             if (dbError) throw dbError;
 
             return pdfData;
@@ -978,9 +973,9 @@ export class BulkIndexingModule {
         const fetchFiles = async () => {
             console.log("📥 Supabase'den dosyalar çekiliyor...");
             const { data, error } = await supabase
-                .from(UNINDEXED_PDFS_COLLECTION)
+                .from(INCOMING_DOCS_COLLECTION)
                 .select('*')
-                .eq('user_id', this.currentUser.uid)
+                .eq('user_id', this.currentUser.id)
                 .order('created_at', { ascending: false });
 
             if (error) {
@@ -998,8 +993,8 @@ export class BulkIndexingModule {
             .on('postgres_changes', { 
                 event: '*', 
                 schema: 'public', 
-                table: UNINDEXED_PDFS_COLLECTION, 
-                filter: `user_id=eq.${this.currentUser.uid}` 
+                table: INCOMING_DOCS_COLLECTION, 
+                filter: `user_id=eq.${this.currentUser.id}` 
             }, () => {
                 fetchFiles();
             })
@@ -1012,21 +1007,17 @@ export class BulkIndexingModule {
         }
 
         const files = data.map(doc => {
-            const dDetails = doc.details || {}; 
-
             let fileObj = {
                 id: doc.id,
                 fileName: doc.file_name,
-                fileUrl: doc.download_url,
-                filePath: dDetails.file_path || doc.file_path,
-                dosyaNo: doc.dosya_no,
-                applicationNo: dDetails.extracted_app_number || doc.extracted_app_number,
-                extractedAppNumber: dDetails.extracted_app_number || doc.extracted_app_number,
-                matchedRecordId: doc.matched_record_id,
-                matchedRecordDisplay: dDetails.matched_record_display || doc.matched_record_display,
-                recordOwnerType: dDetails.record_owner_type || doc.record_owner_type,
+                fileUrl: doc.file_url,
+                filePath: doc.file_path,
+                dosyaNo: doc.application_number,
+                applicationNo: doc.application_number,
+                extractedAppNumber: doc.application_number,
+                matchedRecordId: doc.ip_record_id,
                 status: doc.status,
-                source: dDetails.source || doc.source,
+                source: doc.document_source,
                 uploadedAt: doc.created_at ? new Date(doc.created_at) : new Date()
             };
 
@@ -1036,16 +1027,10 @@ export class BulkIndexingModule {
                 const matchResult = this.matcher.findMatch(searchKey, this.allRecords);
                 if (matchResult) {
                     fileObj.matchedRecordId = matchResult.record.id;
-                    fileObj.matchedRecordDisplay = this.matcher.getDisplayLabel(matchResult.record) + ` - ${matchResult.record.title}`;
-                    fileObj.recordOwnerType = matchResult.record.recordOwnerType || 'self';
                     
-                    supabase.from(UNINDEXED_PDFS_COLLECTION).update({
-                        details: {
-                            ...dDetails, 
-                            matched_record_id: fileObj.matchedRecordId, 
-                            matched_record_display: fileObj.matchedRecordDisplay,
-                            record_owner_type: fileObj.recordOwnerType
-                        }
+                    // 🔥 Yeni şemada doğrudan ip_record_id güncelleniyor
+                    supabase.from(INCOMING_DOCS_COLLECTION).update({
+                        ip_record_id: fileObj.matchedRecordId
                     }).eq('id', fileObj.id).then();
                 }
             }
@@ -1152,7 +1137,7 @@ export class BulkIndexingModule {
                 } catch (e) { console.warn('Storage silme hatası:', e); }
             }
             
-            const { error } = await supabase.from(UNINDEXED_PDFS_COLLECTION).delete().eq('id', fileId);
+            const { error } = await supabase.from(INCOMING_DOCS_COLLECTION).delete().eq('id', fileId);
             if (error) throw error;
             
             showNotification('Dosya silindi.', 'success');
