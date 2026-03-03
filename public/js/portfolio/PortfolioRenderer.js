@@ -104,16 +104,18 @@ export class PortfolioRenderer {
         
         const isWipoParent = (record.origin === 'WIPO' || record.origin === 'ARIPO') && record.transactionHierarchy === 'parent';
         const isChild = record.transactionHierarchy === 'child'; 
-        const irNo = record.wipoIR || record.aripoIR;
         
         if (isWipoParent) {
-            if (irNo) {
-                tr.dataset.groupId = irNo;
-                tr.className = 'group-header';
-            }
+            // 🔥 ÇÖZÜM: WIPO Numarası değil, kendi ID'si referans alınıyor
+            tr.dataset.groupId = record.id;
+            tr.className = 'group-header';
             tr.style.backgroundColor = '#e3f2fd'; 
         } else if (isChild) {
              tr.style.backgroundColor = '#ffffff';
+             // 🔥 ÇÖZÜM: Akordeonun çalışması için gereken Child (Alt) sınıfları ve gizleme özelliği
+             tr.className = 'group-row child-row';
+             tr.dataset.parentId = record.parentId;
+             tr.style.display = 'none'; 
         }
 
         const countryName = this.dataManager.getCountryName(record.country || record.countryCode);
@@ -133,9 +135,12 @@ export class PortfolioRenderer {
                 <button class="action-btn delete-btn btn btn-sm btn-danger" data-id="${record.id}" title="Sil"><i class="fas fa-trash"></i></button>
             </div>`;
 
-        const caret = (isWipoParent && irNo) ? `<i class="fas fa-chevron-right row-caret" style="cursor:pointer;"></i>` : '';
+        // Ok (caret) işareti artık numaraya bağlı değil, sadece WIPO Parent ise direkt çıkar
+        const caret = isWipoParent ? `<i class="fas fa-chevron-right row-caret" style="cursor:pointer; padding: 5px;"></i>` : '';
         const titleText = record.title || record.brandText || '-';
-        const appNoText = record.applicationNumber || (isWipoParent ? irNo : '-'); 
+        
+        // Numara yoksa da (null) sorunsuz - bassın
+        const appNoText = record.applicationNumber || record.wipoIR || record.aripoIR || '-'; 
         
         const applicantText = record.formattedApplicantName || record.applicantName || '-';
 
@@ -146,7 +151,10 @@ export class PortfolioRenderer {
 
         if (!isTrademarkTab) html += `<td>${record.type || '-'}</td>`;
 
-        html += `<td title="${titleText}"><strong>${titleText}</strong></td>`;
+        // 🔥 Alt işlemler (Child) için metne estetik girinti oku eklendi (↳)
+        html += `<td title="${titleText}" ${isChild ? 'style="padding-left: 25px; border-left: 3px solid #6c757d;"' : ''}>
+                    ${isChild ? '↳ ' : ''}<strong>${titleText}</strong>
+                 </td>`;
 
         if (isTrademarkTab) {
             html += imgHtml;
