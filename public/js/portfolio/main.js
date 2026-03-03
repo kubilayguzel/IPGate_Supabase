@@ -670,15 +670,15 @@ class PortfolioController {
                 frag.appendChild(tr);
 
                 if ((item.origin === 'WIPO' || item.origin === 'ARIPO') && item.transactionHierarchy === 'parent') {
-                    const irNo = item.wipoIR || item.aripoIR;
-                    if(irNo) {
-                        const children = this.dataManager.getWipoChildren(irNo);
+                    // 🔥 ÇÖZÜM 1: Artık irNo değil, doğrudan ana kaydın ID'si ile çocukları çekiyoruz
+                    const children = this.dataManager.getWipoChildren(item.id);
+                    if (children && children.length > 0) {
                         children.forEach(child => {
                             const childIsSelected = this.state.selectedRecords.has(String(child.id));
                             const childTr = this.renderer.renderStandardRow(child, this.state.activeTab === 'trademark', childIsSelected);
                             
                             childTr.classList.add('child-row');
-                            childTr.dataset.parentId = irNo;
+                            childTr.dataset.parentId = item.id; // 🔥 irNo yerine ana kaydın ID'sini bağlıyoruz
                             childTr.style.display = 'none'; 
                             childTr.style.backgroundColor = '#ffffff'; 
                             
@@ -849,9 +849,9 @@ class PortfolioController {
                     processedIds.add(String(parent.id));
 
                     if ((parent.origin === 'WIPO' || parent.origin === 'ARIPO') && parent.transactionHierarchy === 'parent') {
-                        const irNo = parent.wipoIR || parent.aripoIR;
-                        if (irNo) {
-                            const children = this.dataManager.getWipoChildren(irNo);
+                        // 🔥 ÇÖZÜM 2: Excel'e aktarırken de irNo yerine parent.id'yi kullanıyoruz
+                        const children = this.dataManager.getWipoChildren(parent.id);
+                        if (children && children.length > 0) {
                             children.forEach(child => {
                                 if (!processedIds.has(String(child.id))) {
                                     sortedData.push(child);
