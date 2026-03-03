@@ -72,8 +72,9 @@ class PortfolioController {
         }
 
         try {
-            await this.dataManager.loadInitialData();
-            await this.dataManager.loadRecords(); 
+            const recordsPromise = this.dataManager.loadRecords(); // hemen başlat, bekleme
+            await this.dataManager.loadInitialData();               // countries + txTypes bekle
+            await recordsPromise;                                   // büyük ihtimalle çoktan bitmiş
 
             if (this.state.activeTab === 'litigation') {
                 await this.dataManager.loadLitigationData();
