@@ -55,10 +55,12 @@ export class TaskValidator {
                     hasCountrySelection = !!document.getElementById('countrySelect')?.value;
                 } 
                 else if (['WIPO', 'ARIPO'].includes(originType)) {
-                    // 🔥 ÇÖZÜM: Yeni arayüzdeki wipoAripoChildList ID'sini kontrol et
-                    const countryList = document.getElementById('wipoAripoChildList');
-                    const cnt = countryList ? countryList.querySelectorAll('.selected-item').length : 0;
-                    hasCountrySelection = cnt > 0;
+                    // 🔥 ÇÖZÜM 1: Yeni arayüzdeki ülke listesini (State veya DOM üzerinden) kontrol et
+                    const hasStateCountries = state && state.selectedCountries && state.selectedCountries.length > 0;
+                    const domList = document.getElementById('selectedCountriesList');
+                    const hasDomCountries = domList ? domList.querySelectorAll('.selected-item').length > 0 : false;
+                    
+                    hasCountrySelection = hasStateCountries || hasDomCountries;
                 }
 
                 // 5. Atanan Kişi
