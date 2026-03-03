@@ -140,15 +140,19 @@ export class AccrualFormManager {
 
             <div class="form-group mt-3" id="${p}ForeignPaymentPartyContainer" style="display:none; background-color: #e3f2fd; padding: 10px; border-radius: 8px; border: 1px solid #90caf9;">
                 <label class="text-primary font-weight-bold"><i class="fas fa-globe-americas mr-2"></i>Yurtdışı Ödeme Yapılacak Taraf</label>
-                <input type="text" id="${p}ForeignPaymentPartySearch" class="form-input form-control" placeholder="Yurtdışı tarafı ara..." style="${inputHeightStyle}">
-                <div id="${p}ForeignPaymentPartyResults" class="search-results-list" style="display:none; max-height: 150px; overflow-y: auto; border: 1px solid #ccc; border-radius: 8px; margin-top: 5px; background:white; position:absolute; z-index:1000; width:90%;"></div>
+                <div class="position-relative">
+                    <input type="text" id="${p}ForeignPaymentPartySearch" class="form-input form-control" placeholder="Yurtdışı tarafı ara..." style="${inputHeightStyle}">
+                    <div id="${p}ForeignPaymentPartyResults" class="search-results-list" style="display:none; max-height: 150px; overflow-y: auto; border: 1px solid #ccc; border-radius: 8px; margin-top: 5px; background:white; position:absolute; z-index:1000; width:100%; top:100%; left:0;"></div>
+                </div>
                 <div id="${p}ForeignPaymentPartyDisplay" class="search-result-display" style="display:none; background: #e9f5ff; border: 1px solid #bde0fe; padding: 10px; border-radius: 8px; margin-top: 10px;"></div>
             </div>
 
             <div class="form-group mt-3 p-3 border rounded shadow-sm" style="${this.isFreestyle ? 'border-color:#1e3c72 !important; background:#f8fbff;' : ''}">
                 <label class="${this.isFreestyle ? 'text-primary font-weight-bold' : ''}">Fatura Kesilecek Kişi (Müvekkil/TP) ${this.isFreestyle ? '<span class="text-danger">*</span>' : ''}</label>
-                <input type="text" id="${p}TpInvoicePartySearch" class="form-input form-control" placeholder="Kişi ara..." style="${inputHeightStyle}">
-                <div id="${p}TpInvoicePartyResults" class="search-results-list" style="display:none; max-height: 150px; overflow-y: auto; border: 1px solid #ccc; border-radius: 8px; margin-top: 5px; background:white; position:absolute; z-index:1000; width:90%;"></div>
+                <div class="position-relative">
+                    <input type="text" id="${p}TpInvoicePartySearch" class="form-input form-control" placeholder="Kişi ara..." style="${inputHeightStyle}">
+                    <div id="${p}TpInvoicePartyResults" class="search-results-list" style="display:none; max-height: 150px; overflow-y: auto; border: 1px solid #ccc; border-radius: 8px; margin-top: 5px; background:white; position:absolute; z-index:1000; width:100%; top:100%; left:0;"></div>
+                </div>
                 <div id="${p}TpInvoicePartyDisplay" class="search-result-display" style="display:none; background: #e9f5ff; border: 1px solid #bde0fe; padding: 10px; border-radius: 8px; margin-top: 10px;"></div>
             </div>
             
