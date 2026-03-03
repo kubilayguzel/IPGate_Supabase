@@ -54,8 +54,9 @@ export class ETEBSManager {
     // ============================================================
     async updateMainBadgeCount() {
         try {
+            // 🔥 ÇÖZÜM: unindexed_pdfs yerine incoming_documents
             const { count, error } = await supabase
-                .from('unindexed_pdfs')
+                .from('incoming_documents')
                 .select('*', { count: 'exact', head: true })
                 .eq('status', 'pending');
             
@@ -152,9 +153,9 @@ export class ETEBSManager {
         }
 
         try {
-            // 🔥 YENİ: Firebase yerine Supabase'den çekiliyor
+            // 🔥 ÇÖZÜM: unindexed_pdfs yerine incoming_documents
             const { data: snapPending, error } = await supabase
-                .from('unindexed_pdfs')
+                .from('incoming_documents')
                 .select('*')
                 .eq('status', 'pending')
                 .limit(150);
@@ -166,8 +167,8 @@ export class ETEBSManager {
 
             let needsMatching = false;
             snapPending.forEach(docSnap => {
-                const details = docSnap.details || {};
-                if (!docSnap.matched_record_id && !details.matched_record_id) {
+                // 🔥 ÇÖZÜM: details objesi yok, doğrudan ip_record_id kontrolü
+                if (!docSnap.ip_record_id) {
                     needsMatching = true;
                 }
             });
@@ -194,7 +195,6 @@ export class ETEBSManager {
 
             snapPending.forEach(docSnap => {
                 const docObj = this._normalizeDocData(docSnap);
-                const details = docSnap.details || {};
                 
                 if (docObj.matchedRecordId) {
                     docObj.matched = true;
@@ -208,16 +208,11 @@ export class ETEBSManager {
                         docObj.matched = true;
                         docObj.matchedRecordId = match.id;
                         docObj.matchedRecordDisplay = this.matcher.getDisplayLabel(match);
-                        docObj.recordOwnerType = match.recordOwnerType || 'self';
                         this.matchedDocs.push(docObj);
 
-                        updatePromises.push(supabase.from('unindexed_pdfs').update({
-                            details: {
-                                ...details,
-                                matched_record_id: docObj.matchedRecordId,
-                                matched_record_display: docObj.matchedRecordDisplay,
-                                record_owner_type: docObj.recordOwnerType
-                            }
+                        // 🔥 ÇÖZÜM: details JSON'ı yerine doğrudan ip_record_id kolonunu güncelliyoruz
+                        updatePromises.push(supabase.from('incoming_documents').update({
+                            ip_record_id: match.id
                         }).eq('id', docSnap.id));
 
                     } else {
@@ -247,21 +242,19 @@ export class ETEBSManager {
     }
 
     _normalizeDocData(data) {
-        const details = data.details || {};
+        // 🔥 ÇÖZÜM: Yeni SQL Şeması. details objesi çöpe atıldı, hepsi kendi sütunundan çekiliyor.
         return {
             id: data.id,
             ...data,
-            ...details,
-            fileName: data.file_name || details.fileName || 'Belge',
-            fileUrl: data.download_url || details.fileUrl,
-            dosyaNo: data.dosya_no || details.dosyaNo,
-            evrakNo: data.evrak_no || details.evrakNo,
-            matchedRecordId: details.matched_record_id || data.matched_record_id,
-            matchedRecordDisplay: details.matched_record_display || data.matched_record_display,
-            recordOwnerType: details.record_owner_type || data.record_owner_type,
-            uploadedAt: this._toDate(data.created_at || details.uploadedAt),
-            belgeTarihi: this._toDate(details.belgeTarihi || data.created_at),
-            tebligTarihi: this._toDate(details.tebligTarihi)
+            fileName: data.file_name || 'Belge',
+            fileUrl: data.file_url,
+            dosyaNo: data.application_number,
+            evrakNo: data.document_number,
+            matchedRecordId: data.ip_record_id,
+            source: data.document_source,
+            uploadedAt: this._toDate(data.created_at),
+            belgeTarihi: this._toDate(data.belge_tarihi),
+            tebligTarihi: this._toDate(data.teblig_tarihi)
         };
     }
 
@@ -490,8 +483,9 @@ export class ETEBSManager {
         if (container) container.innerHTML = '<div class="text-center p-4 text-muted"><i class="fas fa-spinner fa-spin fa-2x mb-3"></i><br>İndekslenmiş evraklar getiriliyor...</div>';
 
         try {
+            // 🔥 ÇÖZÜM: unindexed_pdfs yerine incoming_documents
             const { data: snapIndexed, error } = await supabase
-                .from('unindexed_pdfs')
+                .from('incoming_documents')
                 .select('*')
                 .eq('status', 'indexed')
                 .order('created_at', { ascending: false })
