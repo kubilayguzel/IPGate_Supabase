@@ -364,19 +364,41 @@ export class TaskUIManager {
                 <h3 class="section-title">Rüçhan Bilgileri</h3>
                 <div class="form-group row">
                     <label class="col-sm-3 col-form-label">Rüçhan Tipi</label>
-                    <div class="col-sm-9"><select class="form-control" id="priorityType"><option value="başvuru">Başvuru</option><option value="sergi">Sergi</option></select></div>
+                    <div class="col-sm-9">
+                        <select class="form-control" id="priorityType">
+                            <option value="başvuru">Başvuru</option>
+                            <option value="sergi">Sergi</option>
+                        </select>
+                    </div>
                 </div>
                 <div class="form-group row">
                     <label class="col-sm-3 col-form-label" id="priorityDateLabel">Rüçhan Tarihi</label>
                     <div class="col-sm-9">
-                        <input type="text" class="form-control datepicker" id="priorityDate" placeholder="gg.aa.yyyy" autocomplete="off">
+                        <input type="text" class="form-control" id="priorityDate" placeholder="gg.aa.yyyy" data-datepicker autocomplete="off">
                     </div>
                 </div>
-                <div class="form-group row"><label class="col-sm-3 col-form-label">Rüçhan Ülkesi</label><div class="col-sm-9"><select class="form-control" id="priorityCountry"><option value="">Seçiniz...</option></select></div></div>
-                <div class="form-group row"><label class="col-sm-3 col-form-label">Rüçhan Numarası</label><div class="col-sm-9"><input type="text" class="form-control" id="priorityNumber"></div></div>
-                <div class="form-group full-width text-right mt-3"><button type="button" id="addPriorityBtn" class="btn btn-secondary"><i class="fas fa-plus mr-1"></i> Ekle</button></div>
+                <div class="form-group row">
+                    <label class="col-sm-3 col-form-label">Rüçhan Ülkesi</label>
+                    <div class="col-sm-9">
+                        <select class="form-control" id="priorityCountry"><option value="">Seçiniz...</option></select>
+                    </div>
+                </div>
+                <div class="form-group row">
+                    <label class="col-sm-3 col-form-label">Rüçhan Numarası</label>
+                    <div class="col-sm-9">
+                        <input type="text" class="form-control" id="priorityNumber">
+                    </div>
+                </div>
+                <div class="form-group full-width text-right mt-3">
+                    <button type="button" id="addPriorityBtn" class="btn btn-secondary">
+                        <i class="fas fa-plus mr-1"></i> Ekle
+                    </button>
+                </div>
                 <hr class="my-4">
-                <div class="form-group full-width"><label class="form-label">Eklenen Rüçhanlar</label><div id="addedPrioritiesList" class="selected-items-list"></div></div>
+                <div class="form-group full-width">
+                    <label class="form-label">Eklenen Rüçhanlar</label>
+                    <div id="addedPrioritiesList" class="selected-items-list"></div>
+                </div>
             </div>
         </div>`;
     }
@@ -581,8 +603,10 @@ export class TaskUIManager {
             <div class="form-grid">
                 <div class="form-group"><label class="form-label">Öncelik</label><select id="taskPriority" class="form-select"><option value="medium">Orta</option><option value="high">Yüksek</option></select></div>
                 <div class="form-group"><label class="form-label">Atanacak</label><select id="assignedTo" class="form-select"><option value="">Seçiniz...</option></select></div>
-                <div class="form-group full-width"><label class="form-label">Son Tarih</label><input type="text" id="taskDueDate" class="form-input datepicker" placeholder="gg.aa.yyyy" autocomplete="off">
-            </div>
+                <div class="form-group full-width">
+                    <label class="form-label">Son Tarih</label>
+                    <input type="text" id="taskDueDate" class="form-input datepicker" placeholder="gg.aa.yyyy" autocomplete="off">
+                </div> </div>
         </div>`;
     }
 
