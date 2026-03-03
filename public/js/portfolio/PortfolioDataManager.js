@@ -23,7 +23,9 @@ export class PortfolioDataManager {
         for (let i = 0; i < rawData.length; i++) {
             const record = rawData[i];
             record.applicationDateTs = this._parseDate(record.applicationDate);
-            record.formattedApplicantName = this._resolveApplicantName(record);
+            record.formattedApplicantName = (record.applicantName && record.applicantName !== '-')
+                ? record.applicantName
+                : this._resolveApplicantName(record);
             record.formattedApplicationDate = this._fmtDate(record.applicationDate);
             record.formattedNiceClasses = this._formatNiceClasses(record);
             record.statusText = this._resolveStatusText(record);
