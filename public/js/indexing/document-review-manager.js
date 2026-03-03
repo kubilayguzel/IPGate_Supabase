@@ -23,6 +23,9 @@ import '../simple-loading.js';
 
 const INCOMING_DOCS_COLLECTION = 'incoming_documents';
 const STORAGE_BUCKET = 'documents';
+
+// ⚠️ LÜTFEN DİKKAT: Eski Firebase UID'si (dqk6...) Supabase'de ÇALIŞMAZ. 
+// Görevlerin (Task) doğru kişiye atanması için Selcan Hanım'ın Supabase'deki yeni UUID'sini buraya yapıştırın.
 const SELCAN_UID = 'dqk6yRN7Kwgf6HIJldLt9Uz77RU2'; 
 const SELCAN_EMAIL = 'selcanakoglu@evrekapatent.com';
 
@@ -30,9 +33,9 @@ export class DocumentReviewManager {
     constructor() {
         this.pdfId = new URLSearchParams(window.location.search).get('pdfId');
         const params = new URLSearchParams(window.location.search);
-        this.prefillRecordId = params.get('recordId');     // seçili kayıt
-        this.prefillQuery = params.get('q');               // kayıt ara
-        this.prefillDeliveryDate = params.get('deliveryDate'); // tebliğ tarihi (yyyy-MM-dd)
+        this.prefillRecordId = params.get('recordId');     
+        this.prefillQuery = params.get('q');               
+        this.prefillDeliveryDate = params.get('deliveryDate'); 
         this.currentUser = null;
         this.pdfData = null;
         this.matchedRecord = null;
@@ -57,7 +60,6 @@ export class DocumentReviewManager {
             }
         }
 
-        // 🔥 ÇÖZÜM: Firebase saniye (seconds) dönüşümü tamamen kaldırıldı
         if (!(d instanceof Date)) d = new Date(d);
         if (isNaN(d.getTime())) return '';
 
@@ -90,11 +92,9 @@ export class DocumentReviewManager {
             return;
         }
 
-        // 🔥 ÇÖZÜM: Supabase Asenkron Oturum Kontrolü
         const session = await authService.getCurrentSession();
         this.currentUser = session?.user || null;
 
-        // Kullanıcı yoksa işlemi durdur (Güvenlik önlemi)
         if (!this.currentUser) {
             console.error("Oturum bulunamadı, işlem durduruldu.");
             return;
@@ -264,13 +264,13 @@ export class DocumentReviewManager {
         }
 
         const typeObj = this.allTransactionTypes.find(t => String(t.id) === String(typeId));
-        if (!typeObj || typeObj.duePeriod === undefined) {
+        if (!typeObj || (typeObj.duePeriod === undefined && typeObj.due_period === undefined)) {
             displayInput.value = "Süre tanımlanmamış";
             return;
         }
 
         const deliveryDate = new Date(dateVal);
-        let duePeriod = Number(typeObj.duePeriod || 0);
+        let duePeriod = Number(typeObj.duePeriod || typeObj.due_period || 0);
         
         let officialDate = addMonthsToDate(deliveryDate, duePeriod);
         officialDate = findNextWorkingDay(officialDate, TURKEY_HOLIDAYS);
@@ -284,7 +284,6 @@ export class DocumentReviewManager {
         }
 
         try {
-            // 🔥 SUPABASE SORGUSU (Yeni Tablo)
             const { data: docSnap, error } = await supabase.from(INCOMING_DOCS_COLLECTION).select('*').eq('id', String(this.pdfId)).single();
             if (error || !docSnap) throw new Error('PDF kaydı bulunamadı.');
             
@@ -293,10 +292,9 @@ export class DocumentReviewManager {
                 ...docSnap,
                 fileName: docSnap.file_name,
                 fileUrl: docSnap.file_url,
-                matchedRecordId: docSnap.ip_record_id, // Yeni sütun eşleşmesi
+                matchedRecordId: docSnap.ip_record_id,
                 tebligTarihi: docSnap.teblig_tarihi 
             };
-            console.log("📄 PDF Verisi Yüklendi:", this.pdfData);
 
             if (this.pdfData.fileUrl || this.pdfData.downloadURL) {
                 const pdfUrl = this.pdfData.fileUrl || this.pdfData.downloadURL;
@@ -443,6 +441,7 @@ export class DocumentReviewManager {
 
             const resolveDate = (item) => {
                 try {
+                    if (item.transaction_date) return new Date(item.transaction_date);
                     if (item.timestamp) return new Date(item.timestamp);
                     if (item.creationDate) return new Date(item.creationDate);
                     if (item.created_at) return new Date(item.created_at);
@@ -452,7 +451,10 @@ export class DocumentReviewManager {
             };
 
             const parentTransactions = this.currentTransactions
-                .filter(t => t.transactionHierarchy === 'parent' || !t.transactionHierarchy)
+                .filter(t => {
+                    const h = t.transaction_hierarchy || t.transactionHierarchy;
+                    return h === 'parent' || !h;
+                })
                 .sort((a, b) => {
                     const dateA = resolveDate(a);
                     const dateB = resolveDate(b);
@@ -460,21 +462,24 @@ export class DocumentReviewManager {
                 });
 
             for (const t of parentTransactions) {
-                const typeObj = this.allTransactionTypes.find(type => String(type.id) === String(t.type));
+                const typeId = t.transaction_type_id || t.type;
+                const typeObj = this.allTransactionTypes.find(type => String(type.id) === String(typeId));
                 let label = typeObj ? (typeObj.alias || typeObj.name) : (t.description || 'İşlem');
                 
-                const typeIdStr = String(t.type);
-                if (typeIdStr === '20' || typeIdStr === '19' || t.oppositionOwner) {
+                const typeIdStr = String(typeId);
+                const oppOwner = t.opposition_owner || t.oppositionOwner;
+
+                if (typeIdStr === '20' || typeIdStr === '19' || oppOwner) {
                     let opponentName = null;
 
-                    if (t.oppositionOwner) {
-                        opponentName = t.oppositionOwner;
-                    } else if (t.taskId || t.triggeringTaskId) {
-                        const targetTaskId = t.taskId || t.triggeringTaskId;
+                    if (oppOwner) {
+                        opponentName = oppOwner;
+                    } else if (t.taskId || t.triggeringTaskId || t.task_id) {
+                        const targetTaskId = t.taskId || t.triggeringTaskId || t.task_id;
                         try {
                             const taskResult = await taskService.getTaskById(targetTaskId);
                             if (taskResult.success && taskResult.data) {
-                                const taskOwner = taskResult.data.taskOwner;
+                                const taskOwner = taskResult.data.taskOwner || taskResult.data.task_owner;
                                 const ownerId = Array.isArray(taskOwner) ? taskOwner[0] : taskOwner;
                                 
                                 if (ownerId) {
@@ -512,16 +517,17 @@ export class DocumentReviewManager {
         if (!selectedParentTxId) return;
         
         const selectedParentTx = this.currentTransactions.find(t => String(t.id) === String(selectedParentTxId));
-        const parentTypeId = selectedParentTx?.type;
+        const parentTypeId = selectedParentTx?.transaction_type_id || selectedParentTx?.type;
         
         const parentTypeObj = this.allTransactionTypes.find(t => String(t.id) === String(parentTypeId));
         
-        if (!parentTypeObj || !parentTypeObj.indexFile) {
-            console.warn('Bu ana işlem için tanımlı alt işlem bulunamadı.');
-            return;
-        }
+        if (!parentTypeObj) return;
         
-        const allowedChildIds = Array.isArray(parentTypeObj.indexFile) ? parentTypeObj.indexFile.map(String) : [];
+        let allowedChildIds = [];
+        if (Array.isArray(parentTypeObj.index_file)) allowedChildIds = parentTypeObj.index_file.map(String);
+        else if (Array.isArray(parentTypeObj.indexFile)) allowedChildIds = parentTypeObj.indexFile.map(String);
+        else if (Array.isArray(parentTypeObj.allowed_child_types)) allowedChildIds = parentTypeObj.allowed_child_types.map(String);
+
         const allowedChildTypes = this.allTransactionTypes
             .filter(t => allowedChildIds.includes(String(t.id)))
             .sort((a, b) => (a.order || 999) - (b.order || 999));
@@ -566,7 +572,7 @@ export class DocumentReviewManager {
                 if (this.currentTransactions && parentTxId) {
                     const parentTx = this.currentTransactions.find(t => String(t.id) === parentTxId);
                     if (parentTx) {
-                        const parentType = String(parentTx.type);
+                        const parentType = String(parentTx.transaction_type_id || parentTx.type);
                         if (parentType === '6' || parentType === '17') showRegistration = true;
                     }
                 }
@@ -624,7 +630,7 @@ export class DocumentReviewManager {
         }
     }
 
-    // 🔥 YENİ: İŞLEM KAYDETME YARDIMCISI (Eksik Metod eklendi)
+    // 🔥 ÇÖZÜM: Veritabanı tablosunun SADECE var olan kolonlarına kayıt yapılır.
     async _addTransaction(recordId, txData) {
         const txId = generateUUID();
         const payload = {
@@ -635,10 +641,12 @@ export class DocumentReviewManager {
             parent_id: txData.parentId || null,
             description: txData.description || '',
             note: txData.notes || null,
+            opposition_owner: txData.oppositionOwner || null,
+            task_id: txData.taskId || null,
             transaction_date: txData.date || txData.timestamp || new Date().toISOString(),
-            user_id: txData.userId || this.currentUser?.uid,
+            user_id: txData.userId || this.currentUser?.id, 
             user_email: txData.userEmail || this.currentUser?.email,
-            user_name: txData.userName || this.currentUser?.displayName || 'Kullanıcı',
+            user_name: txData.userName || this.currentUser?.user_metadata?.name || this.currentUser?.email,
             created_at: new Date().toISOString()
         };
         
@@ -676,7 +684,7 @@ export class DocumentReviewManager {
             const selectedText = childSelect?.options?.[childSelect.selectedIndex]?.text || '';
             const typeText = String(selectedText).toLowerCase();
             const parentTx = this.currentTransactions?.find(t => String(t.id) === String(parentTxId));
-            const parentTypeId = String(parentTx?.type || '');
+            const parentTypeId = String(parentTx?.transaction_type_id || parentTx?.type || '');
 
             const isRegistryIndexing =
                 String(childTypeId) === '45' ||
@@ -698,6 +706,7 @@ export class DocumentReviewManager {
             }
         } catch (e) {}
 
+        // 🔥 ÇÖZÜM: IP Records güncellenirken native ve json objeleri ayrıldı
         const regSection = document.getElementById('registry-editor-section');
         if (regSection && regSection.style.display !== 'none' && this.matchedRecord) {
             try {
@@ -705,13 +714,20 @@ export class DocumentReviewManager {
                 const regDateVal = document.getElementById('registry-registration-date')?.value;
                 const statusVal = document.getElementById('registry-status')?.value || document.getElementById('status')?.value;
 
-                const updates = {};
-                if (regNoVal) updates.registrationNumber = regNoVal;
-                if (regDateVal) updates.registrationDate = regDateVal;
-                if (statusVal) updates.status = statusVal;
+                const jsonUpdates = {};
+                const nativeUpdates = {};
 
-                if (Object.keys(updates).length > 0) {
-                    await supabase.from('ip_records').update({ details: { ...this.matchedRecord.details, ...updates } }).eq('id', this.matchedRecord.id);
+                if (regNoVal) jsonUpdates.registrationNumber = regNoVal;
+                if (regDateVal) jsonUpdates.registrationDate = regDateVal;
+                if (statusVal) nativeUpdates.status = statusVal;
+
+                const finalPayload = { ...nativeUpdates };
+                if (Object.keys(jsonUpdates).length > 0) {
+                    finalPayload.details = { ...(this.matchedRecord.details || {}), ...jsonUpdates };
+                }
+
+                if (Object.keys(finalPayload).length > 0) {
+                    await supabase.from('ip_records').update(finalPayload).eq('id', this.matchedRecord.id);
                     showNotification('Kayıt bilgileri güncellendi.', 'success');
                 }
             } catch (err) {
@@ -727,7 +743,7 @@ export class DocumentReviewManager {
         try {
             const childTypeObj = this.allTransactionTypes.find(t => String(t.id) === String(childTypeId));
             const parentTx = this.currentTransactions.find(t => String(t.id) === String(parentTxId));
-            const parentTypeObj = this.allTransactionTypes.find(t => String(t.id) === String(parentTx?.type));
+            const parentTypeObj = this.allTransactionTypes.find(t => String(t.id) === String(parentTx?.transaction_type_id || parentTx?.type));
 
             let newParentTxId = null;
             let oppositionFileUrl = null;
@@ -741,7 +757,6 @@ export class DocumentReviewManager {
                 const epatsFileInput = document.getElementById('oppositionEpatsPetitionFile')?.files?.[0] || null;
                 if (!ownerInput || !fileInput) throw new Error('İtiraz Sahibi ve PDF zorunludur.');
 
-                // Supabase Storage Upload
                 const storagePath = `incoming_documents/${this.matchedRecord.id}/${Date.now()}_${fileInput.name.replace(/[^a-zA-Z0-9.\-_]/g, '_')}`;
                 const { error: upErr } = await supabase.storage.from(STORAGE_BUCKET).upload(storagePath, fileInput);
                 if (upErr) throw upErr;
@@ -784,25 +799,18 @@ export class DocumentReviewManager {
 
             const finalParentId = newParentTxId || parentTxId;
 
-            // 🔥 GÜNCELLENMİŞ TAŞIMA KODU (Bucket ve Klasör Uyumu)
             let finalPdfUrl = this.pdfData.fileUrl || this.pdfData.download_url;
             let finalPdfPath = this.pdfData.file_path || (this.pdfData.details && this.pdfData.details.file_path) || finalPdfUrl;
 
-            // Dosya zaten indexed klasöründe değilse taşı
             if (finalPdfPath && !finalPdfPath.includes('incoming_documents/indexed/')) {
                 let sourcePath = finalPdfPath;
-                
                 if (sourcePath.startsWith('http')) {
                     const urlParts = sourcePath.split('/documents/');
-                    if (urlParts.length > 1) {
-                        sourcePath = urlParts[1]; 
-                    }
+                    if (urlParts.length > 1) sourcePath = urlParts[1]; 
                 }
-                
                 sourcePath = sourcePath.replace('documents/', '');
                 
                 const cleanName = (this.pdfData.fileName || 'evrak.pdf').replace(/[^a-zA-Z0-9.\-_]/g, '_');
-                // Hedef yolu da incoming_documents altına aldık
                 const targetPath = `incoming_documents/indexed/${this.matchedRecord.id}/${Date.now()}_${cleanName}`;
                 
                 const { error: moveError } = await supabase.storage.from(STORAGE_BUCKET).move(sourcePath, targetPath);
@@ -811,9 +819,6 @@ export class DocumentReviewManager {
                     finalPdfPath = targetPath;
                     const { data: urlData } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(targetPath);
                     finalPdfUrl = urlData.publicUrl;
-                    console.log("✅ Dosya başarıyla 'incoming_documents/indexed' klasörüne taşındı.");
-                } else {
-                    console.warn("⚠️ Dosya taşınamadı:", moveError.message);
                 }
             }
 
@@ -833,11 +838,10 @@ export class DocumentReviewManager {
             const txResult = await this._addTransaction(this.matchedRecord.id, transactionData);
             const childTransactionId = txResult.id;
 
-            // İş Tetikleme (Task)
             let shouldTriggerTask = false;
             const recordType = (this.matchedRecord.recordOwnerType === 'self') ? 'Portföy' : '3. Taraf';
             
-            const pTypeIdStr = String(parentTx?.type || ''); 
+            const pTypeIdStr = String(parentTx?.transaction_type_id || parentTx?.type || ''); 
             const childTypeIdStr = String(childTypeId);
             
             const taskTriggerMatrix = {
@@ -861,12 +865,12 @@ export class DocumentReviewManager {
             }
 
             if (!shouldTriggerTask && !skipFallback) {
-                if (childTypeObj.taskTriggered) shouldTriggerTask = true;
+                if (childTypeObj.taskTriggered || childTypeObj.task_triggered) shouldTriggerTask = true;
             }
 
             if (shouldTriggerTask) {
                 const deliveryDate = new Date(deliveryDateStr);
-                let duePeriod = Number(childTypeObj.duePeriod || 0);
+                let duePeriod = Number(childTypeObj.duePeriod || childTypeObj.due_period || 0);
                 
                 let officialDueDate = addMonthsToDate(deliveryDate, duePeriod);
                 officialDueDate = findNextWorkingDay(officialDueDate, TURKEY_HOLIDAYS);
@@ -882,28 +886,28 @@ export class DocumentReviewManager {
 
                 if (this.matchedRecord.recordOwnerType === 'self') {
                     if (Array.isArray(this.matchedRecord.applicants) && this.matchedRecord.applicants.length > 0) {
-                        taskOwner = this.matchedRecord.applicants.map(app => String(app.id || app.personId)).filter(Boolean);
+                        taskOwner = this.matchedRecord.applicants.map(app => String(app.id || app.personId || app.person_id)).filter(Boolean);
                         const app = this.matchedRecord.applicants[0];
-                        if (app && (app.id || app.personId)) {
-                            relatedPartyData = { id: app.id || app.personId, name: app.name || 'İsimsiz' };
+                        if (app && (app.id || app.personId || app.person_id)) {
+                            relatedPartyData = { id: app.id || app.personId || app.person_id, name: app.name || 'İsimsiz' };
                         }
                     }
                 } 
                 else if (this.matchedRecord.recordOwnerType === 'third_party') {
-                    const triggeringTaskId = parentTx?.triggeringTaskId || parentTx?.taskId;
+                    const triggeringTaskId = parentTx?.triggeringTaskId || parentTx?.task_id || parentTx?.taskId;
                     if (triggeringTaskId) {
                         try {
                             const prevTaskResult = await taskService.getTaskById(triggeringTaskId);
                             if (prevTaskResult.success && prevTaskResult.data) {
                                 const prevTask = prevTaskResult.data;
-                                if (prevTask.taskOwner) taskOwner = Array.isArray(prevTask.taskOwner) ? prevTask.taskOwner : [prevTask.taskOwner];
+                                if (prevTask.taskOwner || prevTask.task_owner) taskOwner = Array.isArray(prevTask.taskOwner || prevTask.task_owner) ? (prevTask.taskOwner || prevTask.task_owner) : [(prevTask.taskOwner || prevTask.task_owner)];
                                 if (prevTask.details && prevTask.details.relatedParty) relatedPartyData = prevTask.details.relatedParty;
                             }
                         } catch (e) {}
                     }
 
                     if ((!taskOwner || taskOwner.length === 0) && this.matchedRecord.client) {
-                        const clientId = this.matchedRecord.client.id || this.matchedRecord.client.personId;
+                        const clientId = this.matchedRecord.client.id || this.matchedRecord.client.personId || this.matchedRecord.client.person_id;
                         if (clientId) {
                             taskOwner = [String(clientId)];
                             relatedPartyData = { id: clientId, name: this.matchedRecord.client.name || 'Müvekkil' };
@@ -912,7 +916,7 @@ export class DocumentReviewManager {
                 }
 
                 let tasksToCreate = [];
-                if (childTypeObj.taskTriggered) tasksToCreate.push(String(childTypeObj.taskTriggered));
+                if (childTypeObj.taskTriggered || childTypeObj.task_triggered) tasksToCreate.push(String(childTypeObj.taskTriggered || childTypeObj.task_triggered));
 
                 let fetchedPersonName = null;
                 if (taskOwner && taskOwner.length > 0) {
@@ -939,7 +943,7 @@ export class DocumentReviewManager {
                         if (relatedPartyData) relatedPartyData.name = fetchedPersonName;
                     }
                     else if (relatedPartyData && relatedPartyData.name) ipAppName = relatedPartyData.name;
-                    else if (parentTx && parentTx.oppositionOwner) ipAppName = parentTx.oppositionOwner;
+                    else if (parentTx && (parentTx.oppositionOwner || parentTx.opposition_owner)) ipAppName = (parentTx.oppositionOwner || parentTx.opposition_owner);
                     else if (this.matchedRecord.client && this.matchedRecord.client.name) ipAppName = this.matchedRecord.client.name;
                     else ipAppName = "Müvekkil (Belirtilmemiş)";
                 } else {
@@ -1004,8 +1008,8 @@ export class DocumentReviewManager {
                     if (taskResult.success) {
                         const createdTaskId = taskResult.id;
                         
-                        const { data: cTx } = await supabase.from('transactions').select('details').eq('id', childTransactionId).single();
-                        await supabase.from('transactions').update({ details: { ...(cTx?.details || {}), taskId: String(createdTaskId) } }).eq('id', childTransactionId);
+                        // 🔥 ÇÖZÜM: Transaction güncellenirken "details" yerine doğrudan "task_id" güncellenir
+                        await supabase.from('transactions').update({ task_id: String(createdTaskId) }).eq('id', childTransactionId);
 
                         const triggeredTypeObj = this.allTransactionTypes.find(t => String(t.id) === String(tType));
                         const triggeredTypeName = triggeredTypeObj ? (triggeredTypeObj.alias || triggeredTypeObj.name) : 'Otomatik İşlem';
@@ -1026,14 +1030,14 @@ export class DocumentReviewManager {
 
             if (finalParentId && childTypeId) {
                 try {
-                    const { data: pTx } = await supabase.from('transactions').select('details').eq('id', finalParentId).single();
-                    await supabase.from('transactions').update({ 
-                        details: { ...(pTx?.details || {}), requestResult: childTypeId, requestResultUpdatedAt: new Date().toISOString() } 
-                    }).eq('id', finalParentId);
+                    // 🔥 ÇÖZÜM: Request Result, olmayan details tablosuna değil işlemin "note" alanına kaydedilir
+                    const { data: pTx } = await supabase.from('transactions').select('note').eq('id', finalParentId).single();
+                    const existingNote = pTx?.note || '';
+                    const newNote = existingNote ? `${existingNote}\n[Sonuç İşlemi: ${childTypeId}]` : `[Sonuç İşlemi: ${childTypeId}]`;
+                    await supabase.from('transactions').update({ note: newNote }).eq('id', finalParentId);
                 } catch (err) {}
             }
 
-            // PDF durumunu Indexed yap ve yeni şemaya göre kaydet
             await supabase.from(INCOMING_DOCS_COLLECTION).update({
                 status: 'indexed',
                 file_url: finalPdfUrl, 
@@ -1043,7 +1047,6 @@ export class DocumentReviewManager {
                 ip_record_id: this.matchedRecord.id
             }).eq('id', String(this.pdfId));
 
-            // --- MÜVEKKİL BİLDİRİMİNİ TETİKLE ---
             try {
                 const tebligTarihiStr = document.getElementById('detectedDate').value; 
                 const sonItirazTarihiStr = document.getElementById('calculatedDeadlineDisplay')?.value || '';
@@ -1109,7 +1112,6 @@ export class DocumentReviewManager {
         }
     }
 
-    // 🔥 DÜZELTME: Doğrudan veritabanı araması
     async handleManualSearch(query) {
         const container = document.getElementById('manualSearchResults');
         if (!query || query.length < 3) { container.style.display = 'none'; return; }
