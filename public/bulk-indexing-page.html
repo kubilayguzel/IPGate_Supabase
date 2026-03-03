@@ -471,19 +471,18 @@
 
 <script type="module">
     import { loadSharedLayout } from './js/layout-loader.js';
-    import { BulkIndexingModule } from './js/indexing/manuel-pdf-transaction-manager.js';
     import { ETEBSManager } from './js/indexing/etebs-manager.js';
     import { EpatsUiManager } from './js/indexing/epats-ui-manager.js';
-    // 🔥 Loader modülünü burada import ederek her zaman erişilebilir kılıyoruz
     import './js/simple-loading.js'; 
+    import { ManuelPdfTransactionManager } from './js/indexing/manuel-pdf-transaction-manager.js';
 
     document.addEventListener('DOMContentLoaded', () => {
         loadSharedLayout({ activeMenuLink: 'bulk-indexing-page.html' });
 
-        // 1. Modülleri Başlat
+        // Modülleri Başlat
         window.etebsManager = new ETEBSManager();
         window.epatsUiManager = new EpatsUiManager();
-        window.indexingModule = new BulkIndexingModule();
+        window.manuelPdfTransactionManager = new ManuelPdfTransactionManager();
 
         // 2. URL Parametresi Kontrolü (Yükleme veya ETEBS Sorgusu Sonrası)
         const urlParams = new URLSearchParams(window.location.search);
