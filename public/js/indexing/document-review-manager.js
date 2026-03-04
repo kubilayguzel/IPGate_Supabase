@@ -5,7 +5,8 @@ import {
     ipRecordsService, 
     transactionTypeService, 
     taskService,
-    supabase 
+    supabase,
+    mailService
 } from '../../supabase-config.js';
 
 import { 
@@ -861,6 +862,68 @@ export class DocumentReviewManager {
                 if (childTypeObj.taskTriggered || childTypeObj.task_triggered) shouldTriggerTask = true;
             }
 
+            // 🔥 YENİ: finalTaskOwnerId artık en dışarıda tanımlanıyor ki e-posta bloğu da ulaşabilsin
+            let finalTaskOwnerId = null;
+            let relatedPartyData = null;
+
+            // --- MÜVEKKİL (TASK OWNER) ŞELALE STRATEJİSİ ---
+            // 1. Önce Ebeveyn İşlemden (Parent Transaction) gelen eski Görevin sahibini bul
+            let targetTaskId = parentTx ? (parentTx.task_id || parentTx.taskId) : null;
+            
+            if (!targetTaskId && parentTx && parentTx.parent_id) {
+                try {
+                    const { data: pTx } = await supabase.from('transactions').select('task_id').eq('id', parentTx.parent_id).maybeSingle();
+                    if (pTx && pTx.task_id) targetTaskId = pTx.task_id;
+                } catch(e) {}
+            }
+
+            if (targetTaskId) {
+                try {
+                    // 🔥 ÇÖZÜM 1: .single() yerine .maybeSingle() ile 406 hatası kökünden engellendi
+                    const { data: prevTask } = await supabase.from('tasks').select('task_owner_id, details').eq('id', targetTaskId).maybeSingle();
+                    if (prevTask && prevTask.task_owner_id) {
+                        finalTaskOwnerId = String(prevTask.task_owner_id);
+                        relatedPartyData = { id: finalTaskOwnerId, name: prevTask.details?.related_party_name || "Müvekkil" };
+                    }
+                } catch (e) {}
+            }
+
+            // 🔥 ÇÖZÜM 2 (Deep Fallback): Eski görev bulunamadıysa, bu IP Record'a bağlı "Sahibi olan EN SON görevi" bul. (Rakip dosyalar için %100 kesin çözümdür)
+            if (!finalTaskOwnerId && this.matchedRecord && this.matchedRecord.id) {
+                try {
+                    const { data: fallbackTask } = await supabase
+                        .from('tasks')
+                        .select('task_owner_id, details')
+                        .eq('ip_record_id', this.matchedRecord.id)
+                        .not('task_owner_id', 'is', null)
+                        .order('created_at', { ascending: false })
+                        .limit(1)
+                        .maybeSingle();
+
+                    if (fallbackTask && fallbackTask.task_owner_id) {
+                        finalTaskOwnerId = String(fallbackTask.task_owner_id);
+                        relatedPartyData = { id: finalTaskOwnerId, name: fallbackTask.details?.related_party_name || "Müvekkil" };
+                        console.log(`[INDEXING] Sahip fallback ile bulundu: ${finalTaskOwnerId}`);
+                    }
+                } catch (e) {}
+            }
+
+            // 3. Hala yoksa normal portföy başvuru sahiplerine bak
+            if (!finalTaskOwnerId && this.matchedRecord) {
+                if (this.matchedRecord.client_id) {
+                    finalTaskOwnerId = String(this.matchedRecord.client_id);
+                    relatedPartyData = { id: finalTaskOwnerId, name: this.matchedRecord.client?.name || 'Müvekkil' };
+                } else if (this.matchedRecord.applicants && this.matchedRecord.applicants.length > 0) {
+                    const app = this.matchedRecord.applicants[0];
+                    const appId = app.id || app.person_id || (app.persons && app.persons.id);
+                    const appName = app.name || (app.persons && app.persons.name);
+                    if (appId) {
+                        finalTaskOwnerId = String(appId);
+                        relatedPartyData = { id: finalTaskOwnerId, name: appName || 'Başvuru Sahibi' };
+                    }
+                }
+            }
+
             if (shouldTriggerTask) {
                 const deliveryDate = new Date(deliveryDateStr);
                 let duePeriod = Number(childTypeObj.duePeriod || childTypeObj.due_period || 0);
@@ -873,49 +936,9 @@ export class DocumentReviewManager {
                     taskDueDate.setDate(taskDueDate.getDate() - 1);
                 }
 
-                // --- MÜVEKKİL (TASK OWNER) ŞELALE STRATEJİSİ ---
-                let finalTaskOwnerId = null;
-                let relatedPartyData = null;
-
-                // 1. Önce Ebeveyn İşlemden (Parent Transaction) gelen eski Görevin sahibini bul
-                if (parentTx && (parentTx.task_id || parentTx.taskId)) {
-                    try {
-                        const prevTaskId = parentTx.task_id || parentTx.taskId;
-                        const { data: prevTask } = await supabase.from('tasks').select('task_owner_id, details').eq('id', prevTaskId).single();
-                        if (prevTask && prevTask.task_owner_id) {
-                            finalTaskOwnerId = String(prevTask.task_owner_id);
-                            relatedPartyData = { id: finalTaskOwnerId, name: prevTask.details?.related_party_name || "Müvekkil" };
-                        }
-                    } catch (e) {}
-                }
-
-                // 2. Eski görevde yoksa (veya eski görev yoksa), doğrudan IP Record'a bak
-                if (!finalTaskOwnerId && this.matchedRecord) {
-                    if (this.matchedRecord.client_id) {
-                        finalTaskOwnerId = String(this.matchedRecord.client_id);
-                        relatedPartyData = { id: finalTaskOwnerId, name: this.matchedRecord.client?.name || 'Müvekkil' };
-                    } else if (this.matchedRecord.client && this.matchedRecord.client.id) { // Eski schema yedeği
-                        finalTaskOwnerId = String(this.matchedRecord.client.id);
-                        relatedPartyData = { id: finalTaskOwnerId, name: this.matchedRecord.client.name || 'Müvekkil' };
-                    } else if (this.matchedRecord.applicants && this.matchedRecord.applicants.length > 0) {
-                        const app = this.matchedRecord.applicants[0];
-                        const appId = app.id || app.person_id || (app.persons && app.persons.id);
-                        const appName = app.name || (app.persons && app.persons.name);
-                        if (appId) {
-                            finalTaskOwnerId = String(appId);
-                            relatedPartyData = { id: finalTaskOwnerId, name: appName || 'Başvuru Sahibi' };
-                        }
-                    }
-                }
-
-                let ipAppNo = this.matchedRecord.application_number || this.matchedRecord.applicationNumber || "-";
-                let ipTitle = this.matchedRecord.title || this.matchedRecord.brand_name || "-";
-                let ipAppName = relatedPartyData ? relatedPartyData.name : "-";
-
                 let tasksToCreate = [];
-                if (childTypeObj.task_triggered || childTypeObj.taskTriggered) tasksToCreate.push(String(childTypeObj.task_triggered || childTypeObj.taskTriggered));
+                if (childTypeObj.taskTriggered || childTypeObj.task_triggered) tasksToCreate.push(String(childTypeObj.taskTriggered || childTypeObj.task_triggered));
 
-                // Ekstra Kural: Müvekkil değerlendirmesi isteniyorsa 66'yı tetikle (Self/Third Party uyumlu)
                 const currentChildIdStr = String(childTypeId);
                 const recOwnerType = this.matchedRecord.recordOwnerType;
                 let isEligibleFor66 = false;
@@ -937,6 +960,10 @@ export class DocumentReviewManager {
                     } catch (e) {}
                 }
 
+                let ipAppNo = this.matchedRecord.applicationNumber || this.matchedRecord.application_number || "-";
+                let ipTitle = this.matchedRecord.title || this.matchedRecord.mark_name || "-";
+                let ipAppName = relatedPartyData ? relatedPartyData.name : "-";
+
                 for (const tType of tasksToCreate) {
                     let taskDesc = notes || `İndeksleme işlemi ile otomatik oluşturulan görev.`;
                     let taskStatus = 'awaiting_client_approval';
@@ -955,21 +982,16 @@ export class DocumentReviewManager {
                         } catch (err) {}
                     }
 
-                    // YENİ SUPABASE (SNAKE_CASE) TASK FORMATI
                     const taskData = {
                         title: `${childTypeObj.alias || childTypeObj.name} - ${this.matchedRecord.title || this.matchedRecord.brand_name || ipTitle}`,
                         description: taskDesc,
                         task_type_id: String(tType), 
                         ip_record_id: this.matchedRecord.id,
                         transaction_id: childTransactionId,
-                        
-                        // 🔥 YENİ MANTIK: Bulunan kesin Sahip ID'si atanıyor
-                        task_owner_id: finalTaskOwnerId,
+                        task_owner_id: finalTaskOwnerId, // 🔥 ID ATANDI
                         assigned_to: currentAssignedUser.uid,
-                        
                         status: taskStatus,
                         priority: 'medium',
-                        
                         details: {
                             related_party: relatedPartyData,
                             related_party_name: relatedPartyData?.name || null,
@@ -980,7 +1002,6 @@ export class DocumentReviewManager {
                             triggering_transaction_type: childTypeId,
                             history: [{ action: 'İndeksleme işlemi ile otomatik oluşturuldu.', timestamp: new Date().toISOString(), userEmail: this.currentUser.email }]
                         },
-                        
                         official_due_date: officialDueDate.toISOString(),
                         operational_due_date: taskDueDate.toISOString(),
                         created_at: new Date().toISOString(),
@@ -992,10 +1013,8 @@ export class DocumentReviewManager {
                     if (taskResult.success) {
                         const createdTaskId = taskResult.data?.id || taskResult.id;
                         
-                        if (String(tType) !== "66") {
-                            if (createdTaskId) {
-                                await supabase.from('transactions').update({ task_id: String(createdTaskId) }).eq('id', childTransactionId);
-                            }
+                        if (String(tType) !== "66" && createdTaskId) {
+                            await supabase.from('transactions').update({ task_id: String(createdTaskId) }).eq('id', childTransactionId);
 
                             const triggeredTypeObj = this.allTransactionTypes.find(t => String(t.id) === String(tType));
                             const triggeredTypeName = triggeredTypeObj ? (triggeredTypeObj.alias || triggeredTypeObj.name) : 'Otomatik İşlem';
@@ -1038,17 +1057,30 @@ export class DocumentReviewManager {
                 const tebligTarihiStr = document.getElementById('detectedDate').value; 
                 const sonItirazTarihiStr = document.getElementById('calculatedDeadlineDisplay')?.value || '';
 
+                console.log(`[INDEXING] Posta alıcıları merkezden hesaplanıyor... TaskOwnerID:`, finalTaskOwnerId);
+                
+                // 🔥 ÇÖZÜM 3: Artık finalTaskOwnerId dolu ve ulaşılabiliyor
+                const mailRecipients = await mailService.resolveMailRecipients(
+                    this.matchedRecord.id, 
+                    childTypeId, 
+                    finalTaskOwnerId
+                );
+
                 await supabase.functions.invoke('send-indexing-notification', {
                     body: {
                         recordId: this.matchedRecord.id, 
                         childTypeId: childTypeId,
-                        transactionId: childTransactionId, // 🔥 EKLENEN SATIR: Gerçek İşlem ID'si
+                        transactionId: childTransactionId,
                         tebligTarihi: tebligTarihiStr,
                         sonItirazTarihi: sonItirazTarihiStr,
-                        pdfId: this.pdfId 
+                        pdfId: this.pdfId,
+                        toList: mailRecipients.to, 
+                        ccList: mailRecipients.cc  
                     }
                 });
-            } catch (notifyErr) {}
+            } catch (notifyErr) {
+                console.error("Mail bildirim Edge Function hatası:", notifyErr);
+            }
             
             showNotification('İşlem başarıyla tamamlandı!', 'success');
             setTimeout(() => window.location.href = 'bulk-indexing-page.html', 1500);
@@ -1069,13 +1101,14 @@ export class DocumentReviewManager {
         if (!matchInfoEl) return;
 
         if (this.matchedRecord) {
-            const imgUrl = this.matchedRecord.brandImageUrl || this.matchedRecord.trademarkImage || this.matchedRecord.publicImageUrl || './img/no-image.png';
+            // 🔥 ÇÖZÜM: Var olan yerel resminiz (tp-icon.png) kullanıldı
+            const imgUrl = this.matchedRecord.brandImageUrl || this.matchedRecord.trademarkImage || this.matchedRecord.publicImageUrl || './tp-icon.png';
             const applicantNames = this.matchedRecord.resolvedNames || '-';
 
             matchInfoEl.innerHTML = `
                 <div class="d-flex align-items-center">
                     <div class="mr-3 border rounded bg-white p-1 shadow-sm" style="width: 70px; height: 70px; overflow: hidden;">
-                        <img src="${imgUrl}" class="img-fluid w-100 h-100" style="object-fit: contain;" onerror="this.src='./img/no-image.png'">
+                        <img src="${imgUrl}" class="img-fluid w-100 h-100" style="object-fit: contain;" onerror="this.onerror=null; this.src='./tp-icon.png';">
                     </div>
                     <div class="flex-grow-1 overflow-hidden">
                         <h6 class="mb-1 text-primary font-weight-bold text-truncate" title="${this.matchedRecord.title}">
