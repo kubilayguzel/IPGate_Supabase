@@ -64,16 +64,36 @@ export class TaskDataManager {
 
     async searchBulletinRecords(term) {
         if (!term || term.length < 2) return [];
+        const lowerTerm = term.toLowerCase();
+
         try {
-            const { data, error } = await supabase.from('bulletin_records').select('*').or(`brand_name.ilike.%${term}%,application_number.ilike.%${term}%`).limit(50);
-            if (error) throw error;
+            // 🔥 ÇÖZÜM 1: Tablo adı 'trademark_bulletin_records' olarak düzeltildi
+            const { data, error } = await supabase
+                .from('trademark_bulletin_records')
+                .select('*')
+                .or(`brand_name.ilike.%${lowerTerm}%,application_number.ilike.%${lowerTerm}%`)
+                .limit(50);
+                
+            if (error) {
+                console.error("Bülten arama SQL hatası:", error);
+                throw error;
+            }
+
             return data.map(d => ({
                 id: d.id,
                 ...d,
                 markName: d.brand_name,
-                applicationNo: d.application_number
+                applicationNo: d.application_number,
+                applicationDate: d.application_date,
+                niceClasses: d.nice_classes,
+                holders: d.holders, 
+                imagePath: d.image_url,
+                bulletinId: d.bulletin_id // 🔥 ÇÖZÜM 2: Detay çekmek için gerçek bülten ID'si eklendi
             }));
-        } catch (err) { return []; }
+        } catch (err) {
+            console.error('Bulletin arama hatası:', err);
+            return [];
+        }
     }
 
     // 🔥 GÜNCELLENDİ: "details" objesine bağımlılık kaldırıldı. Direkt kolonlara bakar.
