@@ -75,7 +75,6 @@ export class PortfolioUpdateManager {
     async handleExternalRecordSelection(recordId) {
         if (!recordId) return;
         try {
-            // 🔥 DÜZELTME: Portföyden kaydın "Sınıflar (Classes)" dahil en detaylı halini çekiyoruz
             const result = await ipRecordsService.getRecordById(recordId);
             if (result.success && result.data) {
                 this.selectRecord(result.data);
@@ -96,18 +95,17 @@ export class PortfolioUpdateManager {
         const regDateEl = this.elements.regDateInput;
         const statusEl = this.elements.statusSelect;
 
-        if (regNoEl) regNoEl.value = record.registrationNumber || record.registrationNo || '';
+        if (regNoEl) regNoEl.value = record.registration_number || record.registrationNumber || '';
         if (regDateEl) {
-            regDateEl.value = record.registrationDate || '';
-            if (regDateEl._flatpickr && record.registrationDate) {
-                regDateEl._flatpickr.setDate(record.registrationDate, false);
+            regDateEl.value = record.registration_date || record.registrationDate || '';
+            if (regDateEl._flatpickr && regDateEl.value) {
+                regDateEl._flatpickr.setDate(regDateEl.value, false);
             }
         }
         if (statusEl) {
             statusEl.value = record.status || record.portfolio_status || '';
         }
 
-        // Sınıfları (Nice Classes) ve Eşyaları Doldur
         let loadedClasses = record.niceClasses || [];
         if (typeof loadedClasses === 'string') {
             try { loadedClasses = JSON.parse(loadedClasses); } catch(e) { loadedClasses = []; }
@@ -128,7 +126,6 @@ export class PortfolioUpdateManager {
         this.state.bulletins = record.bulletins || [];
         this.checkVisibility();
 
-        // Nice Classification Modal'ına (UI) verileri gönder
         setTimeout(() => {
             if (typeof setSelectedNiceClasses === 'function') {
                 const formatted = loadedClasses.map(c => {
@@ -179,7 +176,6 @@ export class PortfolioUpdateManager {
         let niceClasses = [];
         let goodsAndServicesByClass = [];
 
-        // Ekranda seçilen/yazılan sınıfları parçala (Regex ile "(35) eşyalar..." ayrıştırılır)
         rawNiceClasses.forEach(item => {
             const match = item.match(/^\((\d+)(?:-\d+)?\)\s*([\s\S]*)$/);
             if (match) {
@@ -206,7 +202,6 @@ export class PortfolioUpdateManager {
             }
         });
 
-        // 🔥 Butonu "Yükleniyor" durumuna getir
         const saveBtn = this.elements.saveBtn;
         let originalContent = '';
         if (saveBtn) {
@@ -216,9 +211,12 @@ export class PortfolioUpdateManager {
         }
 
         try {
+            // 🔥 GÜVENLİK GÜNCELLEMESİ: Supabase Native DB sütunları da garantileniyor
             const updates = {
                 registrationNumber: regNo || null,
+                registration_number: regNo || null,
                 registrationDate: regDate || null,
+                registration_date: regDate || null,
                 status: statusVal || null,
                 niceClasses: niceClasses.sort((a, b) => Number(a) - Number(b)),
                 goodsAndServicesByClass: goodsAndServicesByClass.sort((a, b) => a.classNo - b.classNo),
@@ -229,8 +227,6 @@ export class PortfolioUpdateManager {
                 if (updates[key] === undefined) delete updates[key];
             });
 
-            // 🔥 Supabase ipRecordsService ile tek hamlede SQL UPDATE yapıyoruz
-            // Eşyalar otomatik olarak ip_record_classes tablosuna dağıtılacaktır.
             const result = await ipRecordsService.updateRecord(this.state.selectedRecordId, updates);
             
             if (!result.success) throw new Error(result.error);
@@ -240,7 +236,6 @@ export class PortfolioUpdateManager {
             console.error('Kaydetme hatası:', error);
             showNotification('Kaydetme sırasında hata oluştu: ' + error.message, 'error');
         } finally {
-            // Butonu eski haline döndür
             if (saveBtn) {
                 saveBtn.disabled = false;
                 saveBtn.innerHTML = originalContent || '<i class="fas fa-save mr-2"></i>Portföyü Güncelle';
