@@ -1,9 +1,7 @@
 // public/js/nice-classification.js - Final Professional Version (Supabase Entegreli)
 import { showNotification } from '../utils.js';
-// 🔥 Firebase kütüphaneleri silindi, yerine Supabase getirildi:
 import { supabase } from '../supabase-config.js';
 
-// --- TASARIM ENJEKSİYONU (ZORUNLU GÜNCELLEME) ---
 function injectNiceStyles() {
     const styleId = 'nice-classification-styles';
     const oldStyle = document.getElementById(styleId);
@@ -392,9 +390,15 @@ class NiceClassificationManager {
         this.elements = {}; 
         this.class35Manager = new Class35_5Manager(this);
         this.classTexts = {};
+        
+        // 🔥 YENİ: Çift yüklemeyi engelleyen güvenlik kilidi
+        this.isInitialized = false; 
     }
 
     async init() {
+        // 🔥 YENİ: Eğer zaten başlatıldıysa işlemi atla (Performans artışı)
+        if (this.isInitialized) return;
+
         this.elements = {
             listContainer: document.getElementById('niceClassificationList'),
             selectedContainer: document.getElementById('selectedNiceClasses') || document.getElementById('nice-classes-accordion'),
@@ -410,7 +414,6 @@ class NiceClassificationManager {
         try {
             injectNiceStyles();
             
-            // 🔥 YENİ: Firebase yerine Supabase üzerinden verileri çekiyoruz
             const { data, error } = await supabase
                 .from('nice_classes')
                 .select('*')
@@ -428,6 +431,9 @@ class NiceClassificationManager {
             
             this.setupEventListeners();
             this.updateSelectionUI();
+
+            // 🔥 YENİ: Başarıyla başlatıldığını işaretle
+            this.isInitialized = true;
 
         } catch (error) {
             console.error("Nice error:", error);
