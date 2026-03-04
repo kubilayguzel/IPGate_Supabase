@@ -2,7 +2,8 @@
 
 import { supabase, ipRecordsService } from '../../supabase-config.js';
 import { showNotification, STATUSES } from '../../utils.js';
-import { getSelectedNiceClasses, setSelectedNiceClasses } from '../nice-classification.js';
+// 🔥 GÜNCELLEME: initializeNiceClassification eklendi
+import { initializeNiceClassification, getSelectedNiceClasses, setSelectedNiceClasses } from '../nice-classification.js';
 
 export class PortfolioUpdateManager {
     constructor() {
@@ -14,62 +15,48 @@ export class PortfolioUpdateManager {
             goodsAndServicesMap: {},
             bulletins: []
         };
-
-        this.elements = this.cacheElements();
         this.init();
-        this._lastAutofillKey = null;
     }
 
-    cacheElements() {
-        const $ = (id) => document.getElementById(id);
-        return {
-            searchInput: $('recordSearchInput'),
-            searchResults: $('searchResultsContainer'),
-            selectedDisplay: $('selectedRecordDisplay'),
-            childTransactionType: $('detectedType') || $('childTransactionType'),
-            parentTransactionSelect: $('parentTransactionSelect'),
-            detailsContainer: $('record-details-wrapper'),
-            registryEditorSection: $('registry-editor-section'),
-            regNoInput: $('registry-registration-no'),
-            regDateInput: $('registry-registration-date'),
-            statusSelect: $('registry-status'),
-            saveBtn: $('save-portfolio-btn')
-        };
-    }
-
-    init() {
-        if (!this.elements.detailsContainer) return;
+    async init() {
         this.setupEventListeners();
         this.populateStatusDropdown();
     }
 
     populateStatusDropdown() {
-        const select = this.elements.statusSelect;
-        if (!select) return;
+        const select = document.getElementById('registry-status') || document.getElementById('status');
+        if (!select || select.options.length > 1) return; 
+        
         select.innerHTML = '<option value="">-- Durum Seçin --</option>';
         const statuses = STATUSES.trademark || [];
         statuses.forEach(s => {
             const opt = document.createElement('option');
-            opt.value = s.value; opt.textContent = s.text;
+            opt.value = s.value; 
+            opt.textContent = s.text;
             select.appendChild(opt);
         });
     }
 
     setupEventListeners() {
-        // DocumentReviewManager veya BulkUploadManager'dan gelen seçimi dinle
         document.addEventListener('record-selected', (e) => {
             if (e.detail && e.detail.recordId) {
                 this.handleExternalRecordSelection(e.detail.recordId);
             }
         });
 
-        if (this.elements.saveBtn) {
-            this.elements.saveBtn.addEventListener('click', () => this.handleSave());
-        }
+        document.addEventListener('click', (e) => {
+            const saveBtn = e.target.closest('#save-portfolio-btn');
+            if (saveBtn) {
+                e.preventDefault();
+                this.handleSave();
+            }
+        });
 
-        if (this.elements.childTransactionType) {
-            this.elements.childTransactionType.addEventListener('change', () => this.checkVisibility());
-        }
+        document.addEventListener('change', (e) => {
+            if (e.target && (e.target.id === 'detectedType' || e.target.id === 'childTransactionType')) {
+                this.checkVisibility();
+            }
+        });
     }
 
     async handleExternalRecordSelection(recordId) {
@@ -90,28 +77,51 @@ export class PortfolioUpdateManager {
         this.state.selectedRecordId = record.id;
         this.state.recordData = record;
 
-        // Tescil bilgilerini inputlara bas
-        const regNoEl = this.elements.regNoInput;
-        const regDateEl = this.elements.regDateInput;
-        const statusEl = this.elements.statusSelect;
+        this.populateStatusDropdown();
+
+        const regNoEl = document.getElementById('registry-registration-no');
+        const regDateEl = document.getElementById('registry-registration-date');
+        const statusEl = document.getElementById('registry-status') || document.getElementById('status');
 
         if (regNoEl) regNoEl.value = record.registration_number || record.registrationNumber || '';
         if (regDateEl) {
-            regDateEl.value = record.registration_date || record.registrationDate || '';
-            if (regDateEl._flatpickr && regDateEl.value) {
-                regDateEl._flatpickr.setDate(regDateEl.value, false);
+            const rDate = record.registration_date || record.registrationDate || '';
+            regDateEl.value = rDate;
+            if (regDateEl._flatpickr && rDate) {
+                regDateEl._flatpickr.setDate(rDate, false);
             }
         }
         if (statusEl) {
             statusEl.value = record.status || record.portfolio_status || '';
         }
 
-        let loadedClasses = record.niceClasses || [];
+        let loadedClasses = [];
+        let loadedGS = [];
+
+        try {
+            const { data: classData, error } = await supabase
+                .from('ip_record_classes')
+                .select('*')
+                .eq('ip_record_id', record.id);
+
+            if (!error && classData && classData.length > 0) {
+                loadedClasses = classData.map(c => c.class_no);
+                loadedGS = classData.map(c => ({
+                    classNo: c.class_no,
+                    items: c.items || []
+                }));
+            } else {
+                const details = record.details || {};
+                loadedClasses = record.niceClasses || record.nice_classes || details.niceClasses || [];
+                loadedGS = record.goodsAndServicesByClass || record.goods_and_services_by_class || details.goodsAndServicesByClass || [];
+            }
+        } catch (err) {
+            console.error("Eşya listesi çekilemedi:", err);
+        }
+
         if (typeof loadedClasses === 'string') {
             try { loadedClasses = JSON.parse(loadedClasses); } catch(e) { loadedClasses = []; }
         }
-        
-        let loadedGS = record.goodsAndServicesByClass || [];
         if (typeof loadedGS === 'string') {
             try { loadedGS = JSON.parse(loadedGS); } catch(e) { loadedGS = []; }
         }
@@ -119,42 +129,59 @@ export class PortfolioUpdateManager {
         this.state.niceClasses = loadedClasses;
         this.state.goodsAndServicesMap = {};
         
-        loadedGS.forEach(g => {
-            if (g && g.classNo) this.state.goodsAndServicesMap[g.classNo] = g.items || [];
-        });
+        if (Array.isArray(loadedGS)) {
+            loadedGS.forEach(g => {
+                if (g && (g.classNo !== undefined || g.class_no !== undefined)) {
+                    const cNo = g.classNo !== undefined ? g.classNo : g.class_no;
+                    this.state.goodsAndServicesMap[cNo] = Array.isArray(g.items) ? g.items : [];
+                    
+                    if (!loadedClasses.includes(cNo) && !loadedClasses.includes(String(cNo))) {
+                        loadedClasses.push(cNo);
+                    }
+                }
+            });
+        }
 
-        this.state.bulletins = record.bulletins || [];
+        this.state.bulletins = record.bulletins || (record.details && record.details.bulletins) || [];
         this.checkVisibility();
 
-        setTimeout(() => {
-            if (typeof setSelectedNiceClasses === 'function') {
-                const formatted = loadedClasses.map(c => {
-                    const items = this.state.goodsAndServicesMap[c] || [];
-                    const itemsStr = items.join('\n');
-                    return `(${c}) ${itemsStr}`;
-                });
-                setSelectedNiceClasses(formatted);
+        // 🔥 ÇÖZÜM: Önce Sınıf Modalını UYANDIR, sonra veriyi bas.
+        setTimeout(async () => {
+            try {
+                if (typeof initializeNiceClassification === 'function') {
+                    await initializeNiceClassification(); // UI Başlatılır (SQL'den sınıflar çekilir)
+                }
+
+                if (typeof setSelectedNiceClasses === 'function') {
+                    const formatted = [];
+                    Object.keys(this.state.goodsAndServicesMap).forEach(cNo => {
+                        const items = this.state.goodsAndServicesMap[cNo];
+                        const itemsStr = items.join('\n');
+                        formatted.push(`(${cNo}-1) ${itemsStr}`);
+                    });
+                    
+                    setSelectedNiceClasses(formatted); // Formatlanmış veri basılır
+                }
+            } catch(e) {
+                console.error("Sınıf başlatma hatası:", e);
             }
-        }, 300);
+        }, 500);
     }
 
     checkVisibility() {
-        const childVal = this.elements.childTransactionType ? String(this.elements.childTransactionType.value) : '';
-        const childSelect = this.elements.childTransactionType;
+        const childSelect = document.getElementById('detectedType') || document.getElementById('childTransactionType');
+        const childVal = childSelect ? String(childSelect.value) : '';
         const selectedOption = childSelect && childSelect.selectedIndex > -1 ? childSelect.options[childSelect.selectedIndex] : null;
         const childText = selectedOption ? selectedOption.text.toLowerCase() : '';
 
         let isVisible = false;
-        
-        // İşlem adı "Tescil Belgesi" içeriyorsa veya tipi 45 ise Tescil formunu göster
-        if (childVal === '45' || childText.includes('tescil belgesi')) {
+        if (childVal === '45' || childText.includes('tescil belgesi') || childVal === '40') {
             isVisible = true;
-        } else if (childVal === '40') {
-            isVisible = true; 
         }
 
-        if (this.elements.registryEditorSection) {
-            this.elements.registryEditorSection.style.display = isVisible ? 'block' : 'none';
+        const registryEditorSection = document.getElementById('registry-editor-section');
+        if (registryEditorSection) {
+            registryEditorSection.style.display = isVisible ? 'block' : 'none';
         }
     }
 
@@ -164,9 +191,10 @@ export class PortfolioUpdateManager {
             return;
         }
 
-        const regNo = this.elements.regNoInput ? this.elements.regNoInput.value.trim() : '';
-        const regDate = this.elements.regDateInput ? this.elements.regDateInput.value : '';
-        const statusVal = this.elements.statusSelect ? this.elements.statusSelect.value : '';
+        const regNo = document.getElementById('registry-registration-no')?.value.trim() || '';
+        const regDate = document.getElementById('registry-registration-date')?.value || '';
+        const statusSelect = document.getElementById('registry-status') || document.getElementById('status');
+        const statusVal = statusSelect?.value || '';
 
         let rawNiceClasses = [];
         if (typeof getSelectedNiceClasses === 'function') {
@@ -202,7 +230,7 @@ export class PortfolioUpdateManager {
             }
         });
 
-        const saveBtn = this.elements.saveBtn;
+        const saveBtn = document.getElementById('save-portfolio-btn');
         let originalContent = '';
         if (saveBtn) {
             originalContent = saveBtn.innerHTML;
@@ -211,25 +239,34 @@ export class PortfolioUpdateManager {
         }
 
         try {
-            // 🔥 GÜVENLİK GÜNCELLEMESİ: Supabase Native DB sütunları da garantileniyor
             const updates = {
-                registrationNumber: regNo || null,
                 registration_number: regNo || null,
-                registrationDate: regDate || null,
                 registration_date: regDate || null,
-                status: statusVal || null,
-                niceClasses: niceClasses.sort((a, b) => Number(a) - Number(b)),
-                goodsAndServicesByClass: goodsAndServicesByClass.sort((a, b) => a.classNo - b.classNo),
-                bulletins: this.state.bulletins || []
+                status: statusVal || null
             };
 
             Object.keys(updates).forEach(key => {
                 if (updates[key] === undefined) delete updates[key];
             });
 
-            const result = await ipRecordsService.updateRecord(this.state.selectedRecordId, updates);
+            if (Object.keys(updates).length > 0) {
+                await ipRecordsService.updateRecord(this.state.selectedRecordId, updates);
+            }
+
+            try {
+                await supabase.from('ip_record_classes').delete().eq('ip_record_id', this.state.selectedRecordId);
+                
+                if (goodsAndServicesByClass.length > 0) {
+                    const classInserts = goodsAndServicesByClass.map(g => ({
+                        id: crypto.randomUUID(),
+                        ip_record_id: this.state.selectedRecordId,
+                        class_no: g.classNo,
+                        items: g.items
+                    }));
+                    await supabase.from('ip_record_classes').insert(classInserts);
+                }
+            } catch (classErr) {}
             
-            if (!result.success) throw new Error(result.error);
             showNotification('Tescil bilgileri ve eşya listesi başarıyla güncellendi.', 'success');
 
         } catch (error) {
@@ -245,7 +282,5 @@ export class PortfolioUpdateManager {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    if (document.getElementById('recordSearchInput') || document.getElementById('detectedType')) {
-        window.portfolioUpdateManager = new PortfolioUpdateManager();
-    }
+    window.portfolioUpdateManager = new PortfolioUpdateManager();
 });
