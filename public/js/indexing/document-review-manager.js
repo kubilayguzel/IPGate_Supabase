@@ -1061,6 +1061,7 @@ export class DocumentReviewManager {
                     body: {
                         recordId: this.matchedRecord.id, 
                         childTypeId: childTypeId,
+                        transactionId: childTransactionId, // 🔥 EKLENEN SATIR: Gerçek İşlem ID'si
                         tebligTarihi: tebligTarihiStr,
                         sonItirazTarihi: sonItirazTarihiStr,
                         pdfId: this.pdfId 
