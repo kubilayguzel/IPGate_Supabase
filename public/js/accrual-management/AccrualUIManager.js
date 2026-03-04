@@ -236,8 +236,37 @@ export class AccrualUIManager {
         this.editFormManager.reset();
         this.editFormManager.setData(accrual);
         
+        // 🔥 YENİ KİMLİK ÇÖZÜMLEME MANTĞI (Details JSON İçinden)
         if (epatsDocument) {
             this.editFormManager.showEpatsDoc(epatsDocument);
+        } else if (accrual.taskId && accrual.taskId !== 'null' && accrual.taskId !== 'undefined') {
+            
+            // 1. Sadece details sütununu çekiyoruz
+            supabase.from('tasks').select('details').eq('id', accrual.taskId).single()
+            .then(({data, error}) => {
+                if (error) {
+                    console.error("Tahakkuk işi çekilirken hata:", error.message);
+                    return;
+                }
+                
+                if (data && data.details) {
+                    // 2. Details'in içinden bizim eklediğimiz parent_task_id'yi bul
+                    const parentTaskId = data.details.parent_task_id || data.details.related_task_id || data.details.relatedTaskId;
+                    
+                    if (parentTaskId) {
+                        // 3. Asıl İşi (Örn: Marka Tescil Belgesi İşi) çek ve EPATS belgesini bastır
+                        supabase.from('tasks').select('*').eq('id', parentTaskId).single()
+                        .then(({data: parentData}) => {
+                            if (parentData) {
+                                this.editFormManager.showEpatsDoc(parentData);
+                            }
+                        });
+                    } else {
+                        // Fallback: Belki belge doğrudan bu tahakkuk işine kopyalanmıştır
+                        this.editFormManager.showEpatsDoc(data);
+                    }
+                }
+            }).catch(err => console.error("Belge zinciri çözümlenirken hata:", err));
         }
 
         this.editModal.classList.add('show');
