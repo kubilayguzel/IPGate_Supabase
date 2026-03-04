@@ -4,11 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Müvekkil Bildirimleri</title>
-    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
-    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
-    <link rel="stylesheet" href="./css/shared-styles.css">
-    <link rel="stylesheet" href="./css/simple-loading.css">
+  <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+  <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+  <link rel="stylesheet" href="./css/shared-styles.css">
+  <link rel="stylesheet" href="./css/simple-loading.css">
   <style>
     body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color:#333; display:flex; }
     .page-wrapper { flex-grow:1; display:flex; flex-direction:column; height:100vh; overflow-y:auto; background:linear-gradient(135deg,#f5f7fa 0%,#c3cfe2 100%); }
@@ -29,7 +29,8 @@
     .action-btn:hover{ opacity:.9 }
     .loading{ text-align:center; padding:50px } .no-records{ text-align:center; padding:50px; color:#666 }
     #paginationContainer{ margin:12px 0 4px }
-    /* Modal */
+    
+    /* Modal Styles */
     .modal{ position:fixed; inset:0; background:rgba(0,0,0,0.6); display:none; align-items:center; justify-content:center; z-index:9999 }
     .modal-content{ background:#fff; padding:20px; width:720px; max-width:95vw; border-radius:12px; box-shadow:0 0 20px rgba(0,0,0,.2) }
     .modal-content-lg{ background:#fff; padding:20px; width:960px; max-width:95vw; border-radius:12px; box-shadow:0 0 24px rgba(0,0,0,.25); display:flex; flex-direction:column }
@@ -41,79 +42,28 @@
     .link{ color:#0d6efd; text-decoration:underline; cursor:pointer }
     .action-btn-remind { background:#f59f00 !important; }
     .action-btn-remind:hover { background:#e67700 !important; }
-  </style>
-
-  <style>
+    
     /* Progress Overlay */
-    #progressOverlay {
-      position: fixed;
-      inset: 0;
-      background: rgba(0,0,0,0.35);
-      display: none;
-      align-items: center;
-      justify-content: center;
-      z-index: 10000;
-    }
-    #progressOverlay .box {
-      background: #fff;
-      padding: 20px 24px;
-      border-radius: 12px;
-      min-width: 260px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.15);
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      align-items: center;
-    }
-    .progressbar {
-      width: 100%;
-      height: 6px;
-      background: #eee;
-      border-radius: 999px;
-      overflow: hidden;
-    }
-    .progressbar .bar {
-      width: 0%;
-      height: 100%;
-      background: linear-gradient(90deg, #0d6efd, #20c997);
-      animation: progress-indeterminate 1.4s infinite;
-    }
-    @keyframes progress-indeterminate {
-      0% { transform: translateX(-100%); width: 40%; }
-      50% { transform: translateX(30%); width: 60%; }
-      100% { transform: translateX(100%); width: 40%; }
-    }
-
-    /* Tab Butonları Stili */
-    .tab-btn {
-      background: none;
-      border: none;
-      padding: 10px 20px;
-      font-size: 15px;
-      font-weight: 600;
-      color: #6c757d;
-      cursor: pointer;
-      border-bottom: 3px solid transparent;
-      transition: all 0.2s ease;
-    }
-    .tab-btn:hover {
-      color: #1e3c72;
-      background-color: #f8f9fa;
-      border-radius: 5px 5px 0 0;
-    }
-    .tab-btn.active {
-      color: #1e3c72;
-      border-bottom-color: #1e3c72;
-    }
-    .tab-btn i {
-      margin-right: 8px;
-    }
+    #progressOverlay { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display: none; align-items: center; justify-content: center; z-index: 10000; }
+    #progressOverlay .box { background: #fff; padding: 20px 24px; border-radius: 12px; min-width: 260px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); display: flex; flex-direction: column; gap: 12px; align-items: center; }
+    
+    /* Tab Buttons */
+    .tab-btn { background: none; border: none; padding: 10px 20px; font-size: 15px; font-weight: 600; color: #6c757d; cursor: pointer; border-bottom: 3px solid transparent; transition: all 0.2s ease; }
+    .tab-btn:hover { color: #1e3c72; background-color: #f8f9fa; border-radius: 5px 5px 0 0; }
+    .tab-btn.active { color: #1e3c72; border-bottom-color: #1e3c72; }
+    .tab-btn i { margin-right: 8px; }
   </style>
-
 </head>
 <body>
   <div id="notification-container" style="position:fixed; top:20px; right:20px; z-index:9999;"></div>
   <div id="layout-placeholder"></div>
+
+  <div id="progressOverlay">
+      <div class="box">
+          <i class="fas fa-circle-notch fa-spin fa-2x text-primary"></i>
+          <span id="progressMessage" style="font-weight: 600;">İşlem yapılıyor...</span>
+      </div>
+  </div>
 
   <div class="page-wrapper">
     <main class="main-container">
@@ -124,15 +74,13 @@
 
       <div class="tasks-container">
         <div class="tabs-header" style="padding: 20px 20px 0 20px; border-bottom: 1px solid #eee; display: flex; gap: 10px;">
-          <button class="tab-btn active" data-tab="pending" onclick="switchTab('pending')">
+          <button class="tab-btn active" data-tab="pending">
             <i class="fas fa-clock"></i> Bekleyen Bildirimler
           </button>
-          
-          <button class="tab-btn" data-tab="reminders" onclick="switchTab('reminders')">
+          <button class="tab-btn" data-tab="reminders">
             <i class="fas fa-bell"></i> Hatırlatmalar
           </button>
-          
-          <button class="tab-btn" data-tab="sent" onclick="switchTab('sent')">
+          <button class="tab-btn" data-tab="sent">
             <i class="fas fa-check-circle"></i> Gönderilen Bildirimler
           </button>
         </div>
@@ -147,9 +95,9 @@
                 <th>Müvekkil</th>
                 <th>Konu</th>
                 <th>Başvuru No</th>
-                <th>Tür</th>
+                <th>Tür (İşlem ID)</th>
                 <th>Evrak</th>
-                <th>Son Tarih</th>  
+                <th>Son İtiraz Tarihi</th>  
                 <th>Son Hatırlatma</th> 
                 <th>Oluşturma</th>
                 <th>Gönderim Tarihi</th>
@@ -164,7 +112,6 @@
     </main>
   </div>
 
-  <!-- Düzenleme Modal -->
   <div id="notification-modal" class="modal">
     <div class="modal-content-lg">
       <div class="modal-header">
@@ -172,545 +119,62 @@
         <button id="close-modal" class="close-modal-btn" aria-label="Kapat">&times;</button>
       </div>
       <div class="modal-body">
-        <label for="modal-subject" class="form-label">Konu</label>
-        <input type="text" id="modal-subject" class="form-input" />
+        <label for="modal-subject" class="form-label font-weight-bold">Konu</label>
+        <input type="text" id="modal-subject" class="form-control mb-3" />
 
-        <div id="mailRecipientsBlock" style="margin:12px 0;">
-          <div style="margin-bottom:6px; font-weight:600;">Alıcılar</div>
-          <div class="d-flex" style="gap:16px; flex-wrap:wrap;">
-            <div style="min-width:240px; flex:1;">
-              <small class="text-muted d-block" style="margin-bottom:4px;">To</small>
-              <div id="modal-to" class="recipient-badges"></div>
-              <input id="modal-to-input" class="form-input" placeholder="E-posta ekle ve Enter’a bas" style="margin-top:6px;">
+        <div id="mailRecipientsBlock" class="mb-3 p-3 bg-light rounded border">
+          <div class="d-flex" style="gap:20px; flex-wrap:wrap;">
+            <div style="flex:1;">
+              <label class="form-label font-weight-bold text-primary">Kime (To)</label>
+              <div id="modal-to" class="recipient-badges mb-2"></div>
+              <input id="modal-to-input" class="form-control form-control-sm" placeholder="E-posta yazıp Enter'a basın">
             </div>
-            <div style="min-width:240px; flex:1;">
-              <small class="text-muted d-block" style="margin-bottom:4px;">CC</small>
-              <div id="modal-cc" class="recipient-badges"></div>
-              <input id="modal-cc-input" class="form-input" placeholder="E-posta ekle ve Enter’a bas" style="margin-top:6px;">
+            <div style="flex:1;">
+              <label class="form-label font-weight-bold text-info">Bilgi (CC)</label>
+              <div id="modal-cc" class="recipient-badges mb-2"></div>
+              <input id="modal-cc-input" class="form-control form-control-sm" placeholder="E-posta yazıp Enter'a basın">
             </div>
           </div>
         </div>
 
-        <label for="modal-body" class="form-label">İçerik</label>
+        <label for="modal-body" class="form-label font-weight-bold">İçerik</label>
         <textarea id="modal-body"></textarea>
       </div>
-      <div class="modal-footer">
-        <button id="save-draft" class="action-btn" style="background:#6c757d">Taslak Kaydet</button>
-        <button id="close-modal-btn" class="action-btn" style="background:#adb5bd">Kapat</button>
+      <div class="modal-footer mt-3">
+        <button id="save-draft" class="btn btn-success"><i class="fas fa-save mr-2"></i>Kaydet</button>
+        <button id="close-modal-btn" class="btn btn-secondary">İptal</button>
       </div>
     </div>
   </div>
 
-  <!-- Eksik Bilgi Modal (basit) -->
   <div id="missing-info-modal" class="modal">
     <div class="modal-content">
-      <button id="mi-close" class="close" aria-label="Kapat">&times;</button>
-      <h3>Eksik Bilgiler</h3>
-      <p>Bu bildirim şu anda <b>gönderilmeye hazır değil</b>. Lütfen aşağıdaki eksikleri tamamlayın.</p>
-      <div style="margin:8px 0;">
-        <strong>Portföy Başvuru No:</strong>
-        <span id="mi-application-no">—</span>
+      <div class="modal-header">
+        <h4 class="text-warning"><i class="fas fa-exclamation-triangle mr-2"></i>Eksik Bilgiler</h4>
+        <button id="mi-close" class="close" aria-label="Kapat">&times;</button>
       </div>
-      <div style="margin:8px 0;">
-        <strong>Eksik Alanlar:</strong>
-        <ul id="mi-missing-list" style="margin:6px 0;"></ul>
+      <div class="modal-body">
+        <p>Bu bildirim şu anda <b>gönderilmeye hazır değil</b>. Lütfen aşağıdaki eksikleri tamamlayın.</p>
+        <div class="mb-2">
+          <strong>Portföy Başvuru No:</strong>
+          <span id="mi-application-no" class="ml-2 font-weight-bold">—</span>
+        </div>
+        <div class="alert alert-warning">
+          <strong>Eksik Alanlar:</strong>
+          <ul id="mi-missing-list" class="mb-0 mt-2"></ul>
+        </div>
       </div>
       <div class="modal-footer">
-        <button id="mi-edit" class="action-btn">Bildirimi Düzenle</button>
-        <button id="mi-close-btn" class="action-btn" style="background:#6c757d">Kapat</button>
+        <button id="mi-edit" class="btn btn-primary">Bildirimi Düzenle</button>
+        <button id="mi-close-btn" class="btn btn-secondary">Kapat</button>
       </div>
     </div>
   </div>
 
-  <!-- TinyMCE (external) -->
   <script src="https://cdn.tiny.cloud/1/uecky9tx0nvoenpj0odjyue9swj52q3sz49i62c745240d99/tinymce/6/tinymce.min.js" referrerpolicy="origin"></script>
   <script src="./js/simple-loading.js"></script>
-<script type="module">
-    import { supabase } from "./supabase-config.js";
-    import { loadSharedLayout } from "./js/layout-loader.js";
-    import Pagination from "./js/pagination.js";
-
-    // --- OVERLAY (YÜKLENİYOR EKRANI) YÖNETİMİ ---
-    window.__overlay = {
-      el: null, msgEl: null,
-      init() {
-        this.el = document.getElementById('progressOverlay');
-        this.msgEl = document.getElementById('progressMessage');
-      },
-      show(message='İşlem yapılıyor…') {
-        if (!this.el) this.init();
-        if (this.msgEl) this.msgEl.textContent = message;
-        if (this.el) this.el.style.display = 'flex';
-        document.querySelectorAll('.actions-cell .action-btn').forEach(b => b.disabled = true);
-      },
-      hide() {
-        if (!this.el) this.init();
-        if (this.el) this.el.style.display = 'none';
-        document.querySelectorAll('.actions-cell .action-btn').forEach(b => b.disabled = false);
-      }
-    };
-
-    // --- GLOBAL DEĞİŞKENLER ---
-    const tableBody = document.getElementById("notifications-table-body");
-    const loader = document.getElementById("loader");
-    
-    let pagination;
-    let notificationsData = [];
-    let allNotifications = [];
-    let activeTab = 'pending';
-    let realtimeChannel = null;
-
-    // --- YARDIMCI FONKSİYONLAR ---
-    function toggleLoading(show) {
-      if (window.SimpleLoadingController && window.SimpleLoadingController.show) {
-        show ? window.SimpleLoadingController.show({ text: 'Yükleniyor...' }) : window.SimpleLoadingController.hide();
-      }
-      if (loader) loader.style.display = show ? 'block' : 'none';
-    }
-
-    // --- JSON PARSER (HAYAT KURTARAN DÜZELTME) ---
-    function parseRow(row) {
-        if (!row) return row;
-        const jsonFields = ['details', 'applicants', 'client', 'missing_fields'];
-        jsonFields.forEach(field => {
-            if (typeof row[field] === 'string') {
-                try { row[field] = JSON.parse(row[field]); } catch(e) {}
-            }
-        });
-        return row;
-    }
-
-    function formatDate(dateStr) {
-      if (!dateStr) return '-';
-      return new Date(dateStr).toLocaleString('tr-TR');
-    }
-
-    function formatDateSlashTR(dateStr) {
-      if (!dateStr) return '-';
-      const d = new Date(dateStr);
-      if (isNaN(d.getTime())) return '-';
-      return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
-    }
-
-    async function fetchFromDb(table, id) {
-      if (!id) return null;
-      const { data } = await supabase.from(table).select('*').eq('id', id).single();
-      return parseRow(data); // <-- Düzeltildi
-    }
-
-    function getToCc(notification) {
-      // 1. TO (Alıcı) Listesi için güvenli dönüştürme
-      let to = [];
-      // Hem yeni to_list kolonuna hem de eski recipient kolonuna destek veriyoruz
-      let rawTo = notification.to_list || notification.recipient; 
-      
-      if (Array.isArray(rawTo)) {
-          to = rawTo;
-      } else if (typeof rawTo === 'string') {
-          to = rawTo.split(',').map(s => s.trim()).filter(Boolean);
-      }
-
-      // 2. CC (Bilgi) Listesi için güvenli dönüştürme
-      let cc = [];
-      if (Array.isArray(notification.cc_list)) {
-          cc = notification.cc_list;
-      } else if (typeof notification.cc_list === 'string') {
-          cc = notification.cc_list.split(',').map(s => s.trim()).filter(Boolean);
-      } else if (notification.details?.cc_list) {
-          cc = Array.isArray(notification.details.cc_list) ? notification.details.cc_list : [];
-      }
-      
-      return { toList: to, ccList: cc };
-    }
-
-    async function getAttachmentPreviews(notification) {
-      const previews = [];
-      const safeName = (name, defaultName = "ek.pdf") => String(name || defaultName).replace(/[^\w.\-]+/g, "_").slice(0, 100);
-
-      const docId = notification.source_document_id || notification.sourceDocumentId || notification.details?.sourceDocumentId;
-      if (docId) {
-        try {
-          const d = await fetchFromDb("unindexed_pdfs", docId);
-          if (d) {
-            const fileUrl  = d.file_url || d.fileUrl || d.downloadURL || null;
-            const fileName = d.file_name || d.fileName || "belge.pdf";
-            if (fileUrl) previews.push({ fileName: safeName(fileName, "document.pdf"), fileUrl });
-          }
-        } catch (e) {}
-      }
-      return previews;
-    }
-
-    async function resolveRowData(notification) {
-      let appNo = '-';
-      let clientName = '-';
-      let typeText = notification.child_type_id || notification.type || '-'; // Yeni kolon
-      let dueDate = '-';
-      let attachments = [];
-
-      let recordId = notification.ip_record_id || notification.ipRecordId || null;
-      let pdfData = null;
-
-      // 🔥 Evrak (PDF) ID'sini yeni düz kolondan çekiyoruz
-      const docId = notification.source_document_id;
-      
-      if (docId) {
-        pdfData = await fetchFromDb("unindexed_pdfs", docId);
-        if (!recordId) recordId = pdfData?.ip_record_id || pdfData?.ipRecordId;
-      }
-
-      if (recordId) {
-        const ipRecord = await fetchFromDb('ip_records', recordId);
-        if (ipRecord) {
-          appNo = ipRecord.application_number || ipRecord.applicationNumber || '-';
-          clientName = ipRecord.applicantName || ipRecord.details?.clientName || '-';
-        }
-      }
-
-      // Evrak Linkini Ekleme (Snake case veya Camel case destekli)
-      if (pdfData) {
-        const url = pdfData.file_url || pdfData.fileUrl || pdfData.download_url || pdfData.downloadURL;
-        const name = pdfData.file_name || pdfData.fileName || 'Evrak.pdf';
-        if (url) attachments.push({ name: name, url: url });
-      }
-
-      return { appNo, clientName, typeText, dueDate, attachments };
-    }
-
-    // --- ARAYÜZ (RENDER) YÖNETİMİ ---
-    window.switchTab = async function(tabName) {
-      activeTab = tabName;
-      document.querySelectorAll('.tab-btn').forEach(btn => {
-        btn.dataset.tab === tabName ? btn.classList.add('active') : btn.classList.remove('active');
-      });
-      await applyTabFilter();
-    };
-
-    async function applyTabFilter() {
-      toggleLoading(true);
-      tableBody.innerHTML = "";
-
-      if (activeTab === 'pending') {
-        notificationsData = allNotifications.filter(n => n.status !== 'sent');
-      } else {
-        const sentList = allNotifications.filter(n => n.status === 'sent');
-        let filtered = [];
-        
-        for (const n of sentList) {
-          const tId = n.dependentTaskId || n.details?.dependentTaskId;
-          let tStatus = null;
-          if (tId) {
-            const task = await fetchFromDb('tasks', tId);
-            tStatus = task?.status;
-          }
-          
-          if (activeTab === 'reminders' && tId && tStatus === 'awaiting_client_approval') filtered.push(n);
-          if (activeTab === 'sent' && (!tId || tStatus !== 'awaiting_client_approval')) filtered.push(n);
-        }
-        notificationsData = filtered;
-      }
-
-      if (pagination) {
-        pagination.update(notificationsData.length);
-        pagination.goToPage(1);
-      }
-
-      if (notificationsData.length === 0) {
-        tableBody.innerHTML = `<tr><td colspan="11" class="no-records">Bu sekmede bildirim bulunamadı.</td></tr>`;
-      } else {
-        await renderCurrentPage();
-      }
-      toggleLoading(false);
-    }
-
-    async function renderCurrentPage() {
-      if (!pagination) return;
-      tableBody.innerHTML = "";
-      const slice = pagination.getCurrentPageData(notificationsData || []);
-
-      for (const notification of slice) {
-        const tr = document.createElement('tr');
-        
-        const statusMap = {
-          'sent': 'Gönderildi', 'failed': 'Hata Oluştu', 'pending': 'Bekliyor',
-          'missing_info': 'Eksik Bilgi', 'awaiting_client_approval': 'Onay Bekliyor',
-          'evaluation_pending': 'Değerlendirme Bekliyor'
-        };
-
-        let statusClass = 'status-pending';
-        if (notification.status === 'sent') statusClass = 'status-sent';
-        if (notification.status === 'failed') statusClass = 'status-failed';
-        if (notification.status === 'missing_info') statusClass = 'missing-info';
-
-        const rowData = await resolveRowData(notification);
-
-        const attachmentsHtml = rowData.attachments.length > 0 
-          ? rowData.attachments.map(a => `<a class="link" href="${a.url}" target="_blank">${a.name}</a>`).join('<br>') 
-          : '-';
-
-        const isEvalPending = notification.status === 'evaluation_pending';
-
-        tr.innerHTML = `
-          <td><span class="status-badge ${statusClass}">${statusMap[notification.status] || notification.status}</span></td>
-          <td>${rowData.clientName}</td>
-          <td>${notification.subject || '<span class="missing-field">Konu Eksik</span>'}</td>
-          <td>${rowData.appNo}</td>
-          <td>${rowData.typeText}</td>
-          <td>${attachmentsHtml}</td>
-          <td>${rowData.dueDate}</td>
-          <td>${formatDate(notification.details?.lastReminderAt || notification.lastReminderAt)}</td>
-          <td>${formatDate(notification.created_at || notification.createdAt)}</td>
-          <td>${formatDate(notification.sent_at || notification.sentAt)}</td>
-          <td class="actions-cell"></td>
-        `;
-
-        const actionCell = tr.querySelector('.actions-cell');
-        
-        // Düzenle Butonu
-        const editBtn = document.createElement('button');
-        editBtn.className = 'action-btn';
-        editBtn.textContent = 'Düzenle';
-        if (isEvalPending) { editBtn.disabled = true; editBtn.style.opacity = '0.5'; } 
-        else { editBtn.onclick = () => window.openModal(notification); }
-        actionCell.appendChild(editBtn);
-
-        // Dinamik Gönder/Hatırlat/Eksik Bilgi Butonları
-        if (notification.status === 'missing_info') {
-          const miBtn = document.createElement('button');
-          miBtn.className = 'action-btn'; miBtn.textContent = 'Eksikleri Göster';
-          miBtn.onclick = () => showMissingInfo(notification, rowData.appNo);
-          actionCell.appendChild(miBtn);
-        } else if (notification.status === 'sent') {
-          const remBtn = document.createElement('button');
-          remBtn.className = 'action-btn action-btn-remind'; remBtn.textContent = 'Hatırlat';
-          remBtn.onclick = (e) => sendReminderWithUI(e, notification);
-          actionCell.appendChild(remBtn);
-        } else {
-          const sendBtn = document.createElement('button');
-          sendBtn.className = 'action-btn';
-          sendBtn.textContent = notification.status === 'failed' ? 'Tekrar Gönder' : 'Gönder';
-          if (isEvalPending) { sendBtn.disabled = true; sendBtn.style.opacity = '0.5'; }
-          else { sendBtn.onclick = (e) => sendNotificationWithUI(e, notification); }
-          actionCell.appendChild(sendBtn);
-        }
-
-        tableBody.appendChild(tr);
-      }
-    }
-
-    // --- İŞLEM FONKSİYONLARI (Gönderim & Modal) ---
-    window.sendNotificationWithUI = async function(e, notification) {
-        const btn = e.currentTarget;
-        const { toList } = getToCc(notification);
-        
-        if (!toList.length) {
-            alert("HATA: 'Kime' (To) alanı boş. Sadece CC ile gönderim yapılamaz.\nLütfen 'Düzenle' butonuna basarak alıcı ekleyin.");
-            return; 
-        }
-
-        if(!confirm("E-postayı müvekkile göndermek istediğinize emin misiniz?")) return;
-
-        try {
-          btn.disabled = true;
-          window.__overlay.show('E-posta Supabase üzerinden gönderiliyor...');
-          
-          const { error } = await supabase.functions.invoke('process-mail-notification', { body: { notificationId: notification.id }});
-          if (error) throw error;
-          
-          alert("E-posta başarıyla gönderildi!");
-        } catch (err) { alert("Hata oluştu: " + err.message); } 
-        finally { window.__overlay.hide(); btn.disabled = false; }
-    };
-
-    window.sendReminderWithUI = async function(e, notification) {
-        const btn = e.currentTarget;
-        if(!confirm("Hatırlatma göndermek istediğinize emin misiniz?")) return;
-
-        try {
-          btn.disabled = true;
-          window.__overlay.show('Hatırlatma gönderiliyor...');
-          
-          const { error } = await supabase.functions.invoke('process-mail-notification', { body: { notificationId: notification.id, mode: 'reminder' }});
-          if (error) throw error;
-          
-          alert("Hatırlatma e-postası başarıyla gönderildi.");
-        } catch (err) { alert("Hata oluştu: " + err.message); } 
-        finally { window.__overlay.hide(); btn.disabled = false; }
-    };
-
-    // Modal Yönetimi (Chips ve TinyMCE)
-    window.openModal = function(notification) {
-      document.getElementById("modal-subject").value = notification.subject || "";
-      if (tinymce.get("modal-body")) tinymce.get("modal-body").remove();
-      
-      tinymce.init({
-        selector: "#modal-body", height: 400, menubar: false, plugins: "link lists",
-        toolbar: "undo redo | bold italic underline | bullist numlist | link", branding: false, language: "tr",
-        setup: (editor) => {
-          editor.on("init", () => {
-            editor.setContent(notification.body || "");
-            document.getElementById("notification-modal").style.display = "flex";
-          });
-        }
-      });
-
-      let { toList, ccList } = getToCc(notification);
-      let currentTo = [...toList]; 
-      let currentCc = [...ccList];
-
-      const toEl = document.getElementById("modal-to");
-      const ccEl = document.getElementById("modal-cc");
-      
-      const renderChips = () => {
-        const chip = (v, cls) => `<span class="badge ${cls}" data-val="${v}">${v} <span class="x" style="cursor:pointer;margin-left:5px">×</span></span>`;
-        toEl.innerHTML = currentTo.length ? currentTo.map(v => chip(v, 'badge-to')).join(' ') : '<span class="badge badge-empty">—</span>';
-        ccEl.innerHTML = currentCc.length ? currentCc.map(v => chip(v, 'badge-cc')).join(' ') : '<span class="badge badge-empty">—</span>';
-
-        document.querySelectorAll('.badge .x').forEach(x => x.onclick = (e) => {
-          const val = e.target.parentElement.getAttribute('data-val');
-          currentTo = currentTo.filter(i => i !== val);
-          currentCc = currentCc.filter(i => i !== val);
-          renderChips();
-        });
-      };
-
-      // Eski dinleyicileri temizlemek için inputları klonluyoruz
-      let oldToInput = document.getElementById('modal-to-input');
-      let toInput = oldToInput.cloneNode(true);
-      oldToInput.parentNode.replaceChild(toInput, oldToInput);
-
-      let oldCcInput = document.getElementById('modal-cc-input');
-      let ccInput = oldCcInput.cloneNode(true);
-      oldCcInput.parentNode.replaceChild(ccInput, oldCcInput);
-
-      // Kime (To) Input Dinleyicisi
-      toInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ',' || e.key === ';') {
-          e.preventDefault();
-          const val = toInput.value.trim();
-          if (val && !currentTo.includes(val)) {
-            currentTo.push(val);
-            toInput.value = '';
-            renderChips();
-          }
-        }
-      });
-
-      // Bilgi (CC) Input Dinleyicisi
-      ccInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ',' || e.key === ';') {
-          e.preventDefault();
-          const val = ccInput.value.trim();
-          if (val && !currentCc.includes(val)) {
-            currentCc.push(val);
-            ccInput.value = '';
-            renderChips();
-          }
-        }
-      });
-
-      renderChips();
-
-      // Taslak Kaydet
-      document.getElementById("save-draft").onclick = async () => {
-        try {
-          window.__overlay.show('Taslak kaydediliyor...');
-          
-          // Ekstra Güvenlik: Enter'a basmadan taslak kaydet derse inputta kalan yazıyı da al
-          if (toInput.value.trim() && !currentTo.includes(toInput.value.trim())) currentTo.push(toInput.value.trim());
-          if (ccInput.value.trim() && !currentCc.includes(ccInput.value.trim())) currentCc.push(ccInput.value.trim());
-
-          const missing = [];
-          if (!currentTo.length && !currentCc.length) missing.push("recipients");
-          const newStatus = missing.length > 0 ? 'missing_info' : 'pending';
-
-          const newSubject = document.getElementById("modal-subject").value.trim();
-          const newBody = tinymce.get("modal-body").getContent();
-          const newRecipient = currentTo.join(',');
-          const newDetails = { ...notification.details, cc_list: currentCc, missingFields: missing };
-
-          // 1. Veritabanını Güncelle
-          await supabase.from("mail_notifications").update({
-            subject: newSubject,
-            body: newBody,
-            recipient: newRecipient,
-            status: newStatus,
-            details: newDetails
-          }).eq('id', notification.id);
-
-          // 2. RAM'deki (Local) objeyi ANINDA Güncelle! (Sorunu çözen kısım)
-          notification.subject = newSubject;
-          notification.body = newBody;
-          notification.recipient = newRecipient;
-          notification.status = newStatus;
-          notification.details = newDetails;
-
-          // 3. Arka plandaki tabloyu yeni statüye göre yenile
-          renderCurrentPage();
-
-          document.getElementById("notification-modal").style.display = "none";
-          alert("Taslak başarıyla güncellendi.");
-        } catch (err) { alert("Hata: " + err.message); }
-        finally { window.__overlay.hide(); }
-      };
-
-      document.getElementById("close-modal-btn").onclick = () => document.getElementById("notification-modal").style.display = "none";
-      document.getElementById("close-modal").onclick = () => document.getElementById("notification-modal").style.display = "none";
-    };
-
-    function showMissingInfo(notification, appNo) {
-      const modal = document.getElementById("missing-info-modal");
-      document.getElementById("mi-application-no").textContent = appNo || "—";
-      const list = document.getElementById("mi-missing-list");
-      list.innerHTML = "";
-      
-      const fields = notification.details?.missingFields || [];
-      if (fields.length) fields.forEach(f => list.innerHTML += `<li>${f}</li>`);
-      else list.innerHTML = `<li>Detay yok. Lütfen 'Düzenle'ye basarak eksikleri tamamlayın.</li>`;
-      
-      modal.style.display = "flex";
-      document.getElementById("mi-close").onclick = () => modal.style.display = "none";
-      document.getElementById("mi-close-btn").onclick = () => modal.style.display = "none";
-      document.getElementById("mi-edit").onclick = () => { modal.style.display = "none"; window.openModal(notification); };
-    }
-
-
-    // --- BAŞLANGIÇ VE VERİ DİNLEME ---
-    async function loadData() {
-      toggleLoading(true);
-      const { data } = await supabase.from('mail_notifications').select('*').order('created_at', { ascending: false });
-      if (data) {
-        allNotifications = data.map(parseRow); // <-- Düzeltildi
-        if (!pagination) {
-          pagination = new Pagination({
-            containerId: "paginationContainer", itemsPerPage: 20, maxVisiblePages: 7,
-            showFirstLast: true, showPrevNext: true, showPageInfo: true,
-            onPageChange: () => renderCurrentPage()
-          });
-        }
-        await applyTabFilter();
-      }
-      toggleLoading(false);
-    }
-
-    function initListener() {
-      loadData();
-      if (realtimeChannel) supabase.removeChannel(realtimeChannel);
-      realtimeChannel = supabase.channel('mail_notifications')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'mail_notifications' }, () => loadData())
-        .subscribe();
-    }
-
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        loadSharedLayout({ activeMenuLink: "notifications.html" });
-        initListener();
-      } else {
-        window.location.href = "index.html"; 
-      }
-    });
-
-  </script>
+  
+  <script type="module" src="./js/notifications.js"></script>
 
 </body>
 </html>
