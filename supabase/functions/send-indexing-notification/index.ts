@@ -1,114 +1,141 @@
 // supabase/functions/send-indexing-notification/index.ts
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apiKey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
 
   try {
-    const supabaseClient = createClient(
+    const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const { recordId, childTypeId, tebligTarihi, sonItirazTarihi, pdfId } = await req.json();
+    // 🔥 GÜNCELLEME 1: transactionId eklendi
+    const { recordId, childTypeId, transactionId, tebligTarihi, sonItirazTarihi, pdfId } = await req.json();
 
-    // --- JSON PARSER (HAYAT KURTARAN DÜZELTME) ---
-    const parseJson = (val: any) => {
-        if (typeof val === 'string') { try { return JSON.parse(val); } catch { return {}; } }
-        return val || {};
-    };
-    const parseArr = (val: any) => {
-        if (typeof val === 'string') { try { return JSON.parse(val); } catch { return []; } }
-        return Array.isArray(val) ? val : [];
-    };
+    if (!recordId) throw new Error("recordId eksik!");
 
-    // 1. IP Kaydı
-    const { data: record } = await supabaseClient.from('ip_records').select('*').eq('id', recordId).single();
-    if (!record) throw new Error("IP Kaydı bulunamadı.");
-    const recDetails = parseJson(record.details);
-    const applicants = parseArr(record.applicants);
-    const currentCategory = (record.record_type || record.recordType || 'marka').toLowerCase();
+    const { data: record, error: recError } = await supabaseAdmin
+        .from('ip_records')
+        .select(`
+            *,
+            details:ip_record_trademark_details(brand_name, brand_image_url),
+            applicants:ip_record_applicants(persons(id, name, email))
+        `)
+        .eq('id', recordId)
+        .single();
 
-    // 2. Şablon Tespiti
-    let targetTemplateId = `tmpl_${childTypeId}_document`;
-    const { data: rule } = await supabaseClient.from('template_rules').select('*').eq('id', `rule_doc_index_${childTypeId}`).maybeSingle();
-    if (rule) targetTemplateId = rule.template_id || rule.templateId || targetTemplateId;
+    if (recError || !record) throw new Error("IP Kaydı bulunamadı: " + (recError?.message || ''));
 
-    const { data: template } = await supabaseClient.from('mail_templates').select('*').eq('id', targetTemplateId).single();
-    if (!template) throw new Error(`Şablon bulunamadı: ${targetTemplateId}`);
-    const tmplDetails = parseJson(template.details);
-
-    // 3. Alıcılar ve CC
+    const ipType = (record.ip_type || 'trademark').toLowerCase();
+    
+    const brandName = (record.details && record.details.length > 0) ? record.details[0].brand_name : record.title || '-';
+    const brandImageUrl = (record.details && record.details.length > 0 && record.details[0].brand_image_url) 
+                          ? record.details[0].brand_image_url 
+                          : 'https://via.placeholder.com/150?text=Gorsel+Yok';
+    
+    let clientName = 'Sayın İlgili';
+    let fallbackEmail = null;
     let ownerIds: string[] = [];
-    const { data: ownerRels1 } = await supabaseClient.from('ip_record_persons').select('*').eq('ip_record_id', recordId);
-    if (ownerRels1) ownerRels1.forEach((o:any) => { if (o.person_id) ownerIds.push(o.person_id) });
 
-    applicants.forEach((a: any) => { if (a.id) ownerIds.push(a.id); else if (a.personId) ownerIds.push(a.personId); });
+    if (record.applicants && record.applicants.length > 0) {
+        const firstApp = record.applicants[0].persons;
+        if (firstApp) {
+            clientName = firstApp.name || clientName;
+            fallbackEmail = firstApp.email;
+        }
+        record.applicants.forEach((app: any) => {
+            if (app.persons && app.persons.id) ownerIds.push(app.persons.id);
+        });
+    }
+
+    let targetTemplateId = `tmpl_${childTypeId}_document`;
+    const { data: rule } = await supabaseAdmin.from('template_rules').select('*').eq('id', `rule_doc_index_${childTypeId}`).maybeSingle();
+    if (rule && rule.template_id) targetTemplateId = rule.template_id;
+
+    const { data: template } = await supabaseAdmin.from('mail_templates').select('*').eq('id', targetTemplateId).maybeSingle();
+    
+    let finalBody = template?.body || template?.body1 || `<p>Yeni evrak tebliğ edilmiştir. Evrak tipi kodu: ${childTypeId}</p>`;
+    let finalSubject = template?.subject || template?.mail_subject || `Evreka IP: Yeni Evrak Bildirimi (${record.application_number || ''})`;
 
     let toList: string[] = [];
     let ccList: string[] = [];
 
-    // Global CC'leri al (evreka_mail_settings tablosu)
-    const { data: globalSettings } = await supabaseClient.from('evreka_mail_settings').select('*').eq('id', 'default').maybeSingle();
-    if (globalSettings) {
-        const gsDetails = parseJson(globalSettings.details);
-        const defaultCcs = globalSettings.cc_emails || globalSettings.ccEmails || gsDetails.cc_emails || [];
-        if (Array.isArray(defaultCcs)) ccList.push(...defaultCcs);
-        else if (typeof defaultCcs === 'string') ccList.push(...defaultCcs.split(','));
-    }
-
     if (ownerIds.length > 0) {
-        const { data: rels } = await supabaseClient.from('persons_related').select('*').in('person_id', ownerIds);
-        if (rels) {
-            for (const rel of rels) {
-                if ((rel.category || '').toLowerCase() === currentCategory || (rel.category || '').toLowerCase() === 'all') {
-                    const rId = rel.related_person_id || rel.relatedPersonId;
-                    if (rId) {
-                        const { data: pData } = await supabaseClient.from('persons').select('*').eq('id', rId).maybeSingle();
-                        if (pData) {
-                            const pDetails = parseJson(pData.details);
-                            const pEmail = pData.email || pData.contactEmail || pDetails.email;
-                            if (pEmail) {
-                                if (rel.is_notification_recipient) toList.push(pEmail);
-                                if (rel.is_cc_recipient) ccList.push(pEmail);
-                            }
-                        }
-                    }
+        const { data: rels } = await supabaseAdmin.from('persons_related').select('*').in('person_id', ownerIds);
+        
+        if (rels && rels.length > 0) {
+            rels.forEach((rel: any) => {
+                const email = (rel.email || '').trim().toLowerCase();
+                if (!email) return;
+
+                let isResponsible = false, notifyTo = false, notifyCc = false;
+
+                if (ipType === 'trademark') {
+                    isResponsible = rel.resp_trademark;
+                    notifyTo = rel.notify_trademark_to;
+                    notifyCc = rel.notify_trademark_cc;
+                } else if (ipType === 'patent') {
+                    isResponsible = rel.resp_patent;
+                    notifyTo = rel.notify_patent_to;
+                    notifyCc = rel.notify_patent_cc;
+                } else if (ipType === 'design') {
+                    isResponsible = rel.resp_design;
+                    notifyTo = rel.notify_design_to;
+                    notifyCc = rel.notify_design_cc;
                 }
-            }
+
+                if (isResponsible) {
+                    if (notifyTo) toList.push(email);
+                    if (notifyCc) ccList.push(email);
+                }
+            });
         }
     }
 
-    const fallbackEmail = record.contactEmail || recDetails.contactEmail || recDetails.clientEmail;
-    if (toList.length === 0 && fallbackEmail) toList.push(fallbackEmail);
+    if (toList.length === 0 && fallbackEmail) {
+        toList.push(fallbackEmail);
+    }
 
-    // 4. Şablon Değişkenleri
-    let finalBody = template.body || tmplDetails.body || "";
-    let finalSubject = template.subject || tmplDetails.subject || "";
+    const { data: globalCcs } = await supabaseAdmin.from('evreka_mail_cc_list').select('email, transaction_types');
+    if (globalCcs && globalCcs.length > 0) {
+        globalCcs.forEach((ccRow: any) => {
+            if (ccRow.email) {
+                const types = ccRow.transaction_types || [];
+                if (types.includes('All') || types.includes(String(childTypeId)) || types.includes(Number(childTypeId))) {
+                    ccList.push(ccRow.email.trim().toLowerCase());
+                }
+            }
+        });
+    }
+
+    const uniqueTo = [...new Set(toList)].filter(Boolean);
+    let uniqueCc = [...new Set(ccList)].filter(Boolean);
+    uniqueCc = uniqueCc.filter(e => !uniqueTo.includes(e)); 
 
     const formatDateTR = (dStr: string) => {
-        try { const d = new Date(dStr); return isNaN(d.getTime()) ? (dStr||'-') : d.toLocaleDateString('tr-TR'); } 
-        catch { return dStr || '-'; }
+        if (!dStr) return '-';
+        try { const d = new Date(dStr); return isNaN(d.getTime()) ? dStr : d.toLocaleDateString('tr-TR'); } 
+        catch { return dStr; }
     };
 
     const placeholders: Record<string, string> = { 
-      '{{markName}}': record.title || record.markName || recDetails.markName || '-', 
-      '{{applicationNo}}': record.application_number || record.applicationNumber || recDetails.applicationNo || '-',
-      '{{clientName}}': record.applicantName || recDetails.clientName || recDetails.applicantName || 'Sayın İlgili',
-      '{{bulletinNo}}': record.bulletinNo || recDetails.bulletinNo || '-',
+      '{{markName}}': brandName, 
+      '{{applicationNo}}': record.application_number || '-',
+      '{{clientName}}': clientName,
       '{{date}}': new Date().toLocaleDateString('tr-TR'),
       '{{teblig_tarihi}}': formatDateTR(tebligTarihi),
       '{{son_itiraz_tarihi}}': formatDateTR(sonItirazTarihi),
       '{{transactionDate}}': formatDateTR(tebligTarihi),
       '{{objection_deadline}}': formatDateTR(sonItirazTarihi),
       '{{docType}}': 'Resmi Yazı',
-      '{{markImageUrl}}': record.brandImageUrl || recDetails.brandImageUrl || 'https://via.placeholder.com/150?text=Gorsel+Yok'
+      '{{markImageUrl}}': brandImageUrl
     };
 
     Object.entries(placeholders).forEach(([k, v]) => {
@@ -116,31 +143,39 @@ serve(async (req: Request) => {
       finalSubject = finalSubject.replace(new RegExp(k, 'g'), String(v));
     });
 
-    const uniqueTo = [...new Set(toList)];
-    const uniqueCc = [...new Set(ccList)];
-
-    // 5. Kayıt (Yeni düz kolon yapısına göre)
     const insertObject = {
       id: crypto.randomUUID(),
-      ip_record_id: recordId,
+      related_ip_record_id: recordId,
       subject: finalSubject,
       body: finalBody,
-      recipient: uniqueTo.join(','),
-      cc_list: uniqueCc.join(','),
+      to_list: uniqueTo,  
+      cc_list: uniqueCc,  
       source_document_id: pdfId,
-      child_type_id: String(childTypeId),
+      associated_transaction_id: transactionId || null, // 🔥 GÜNCELLEME 2: Gerçek UUID kullanıldı
       template_id: targetTemplateId,
       status: uniqueTo.length === 0 ? 'missing_info' : 'pending',
+      is_draft: uniqueTo.length === 0, 
       created_at: new Date().toISOString(),
-      missing_fields: uniqueTo.length === 0 ? ['recipients'] : [],
-      details: { tebligTarihi, sonItirazTarihi } // Geriye dönük uyumluluk
+      missing_fields: uniqueTo.length === 0 ? ['to_list'] : [],
+      objection_deadline: sonItirazTarihi || null,
+      source: 'indexing_automation' 
     };
 
-    await supabaseClient.from('mail_notifications').insert(insertObject);
+    const { error: insertError } = await supabaseAdmin.from('mail_notifications').insert(insertObject);
+    
+    if (insertError) {
+        throw new Error("Mail kaydı oluşturulamadı: " + insertError.message);
+    }
 
-    return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    return new Response(JSON.stringify({ 
+        success: true, 
+        message: "Mail başarıyla kuyruğa alındı.",
+        toCount: uniqueTo.length, 
+        ccCount: uniqueCc.length 
+    }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
   } catch (error: any) {
+    console.error("🔥 Mail bildirim Edge Function hatası:", error.message);
     return new Response(JSON.stringify({ error: error.message }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 });
   }
 });
