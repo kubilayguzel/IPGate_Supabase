@@ -1587,7 +1587,61 @@ export const mailService = {
 };
 
 // ==========================================
-// YENİ: MERKEZİ STORAGE (DOSYA YÜKLEME) SERVİSİ
+// 11. MERKEZİ EVRAK (ATTACHMENT) ÇÖZÜMLEME SERVİSİ
+// ==========================================
+export const attachmentService = {
+    async resolveAttachments(transactionId, sourceDocumentId) {
+        console.log(`[ATTACHMENT SERVICE] Evraklar çözümleniyor... txId: ${transactionId}, sourceId: ${sourceDocumentId}`);
+        let attachments = [];
+        let transactionIdsToFetch = [];
+
+        try {
+            if (transactionId) {
+                transactionIdsToFetch.push(transactionId);
+                
+                // 1. Ana İşlemi (Parent Transaction) Bul
+                const { data: txData } = await supabase.from('transactions').select('parent_id').eq('id', transactionId).maybeSingle();
+                if (txData && txData.parent_id) {
+                    transactionIdsToFetch.push(txData.parent_id);
+                    console.log(`[ATTACHMENT SERVICE] Ana İşlem (Parent) bulundu ve eklendi: ${txData.parent_id}`);
+                }
+
+                // 2. Hem Ana hem Alt İşlemin tüm evraklarını çek
+                const { data: txDocs } = await supabase.from('transaction_documents').select('document_name, document_url').in('transaction_id', transactionIdsToFetch);
+                if (txDocs && txDocs.length > 0) {
+                    txDocs.forEach(d => attachments.push({ name: d.document_name, url: d.document_url }));
+                }
+            }
+
+            // 3. Gelen ana evrakı (Tebliğ edilen PDF) kontrol et
+            if (sourceDocumentId) {
+                const { data: docData } = await supabase.from('incoming_documents').select('file_name, file_url').eq('id', sourceDocumentId).maybeSingle();
+                if (docData && docData.file_url) {
+                    attachments.push({ name: docData.file_name || 'Tebliğ Evrakı.pdf', url: docData.file_url });
+                }
+            }
+
+            // 4. Temizlik (Aynı URL'ye sahip dosyaları teke düşür - Deduplication)
+            const uniqueAttachments = [];
+            const urls = new Set();
+            for (const att of attachments) {
+                if (att.url && !urls.has(att.url)) {
+                    urls.add(att.url);
+                    uniqueAttachments.push(att);
+                }
+            }
+
+            console.log(`[ATTACHMENT SERVICE] Toplam ${uniqueAttachments.length} benzersiz evrak bulundu.`);
+            return uniqueAttachments;
+        } catch (err) {
+            console.error(`[ATTACHMENT SERVICE] Hata:`, err);
+            return [];
+        }
+    }
+};
+
+// ==========================================
+// 12.MERKEZİ STORAGE (DOSYA YÜKLEME) SERVİSİ
 // ==========================================
 export const storageService = {
     // path formatı: 'persons/KISI_ID/belge.pdf' veya 'tasks/TASK_ID/evrak.pdf'
