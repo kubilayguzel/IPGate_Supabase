@@ -1599,15 +1599,27 @@ export const attachmentService = {
             if (transactionId) {
                 transactionIdsToFetch.push(transactionId);
                 
-                // 1. Ana İşlemi (Parent Transaction) Bul
-                const { data: txData } = await supabase.from('transactions').select('parent_id').eq('id', transactionId).maybeSingle();
-                if (txData && txData.parent_id) {
+                // 1. İşlem Tipini (Type) ve Ana İşlemi (Parent) Bul
+                const { data: txData } = await supabase
+                    .from('transactions')
+                    .select('transaction_type_id, parent_id')
+                    .eq('id', transactionId)
+                    .maybeSingle();
+                
+                // 🔥 KURAL: Sadece Tip 27 ise Parent evraklarını çek
+                if (txData && String(txData.transaction_type_id) === '27' && txData.parent_id) {
                     transactionIdsToFetch.push(txData.parent_id);
-                    console.log(`[ATTACHMENT SERVICE] Ana İşlem (Parent) bulundu ve eklendi: ${txData.parent_id}`);
+                    console.log(`[ATTACHMENT SERVICE] Tip 27 algılandı. Ana İşlem (Parent) evrakları listeye eklendi: ${txData.parent_id}`);
+                } else {
+                    console.log(`[ATTACHMENT SERVICE] Tip 27 değil (İşlem Tipi: ${txData?.transaction_type_id || 'Bilinmiyor'}). Sadece kendi evrakı alınacak.`);
                 }
 
-                // 2. Hem Ana hem Alt İşlemin tüm evraklarını çek
-                const { data: txDocs } = await supabase.from('transaction_documents').select('document_name, document_url').in('transaction_id', transactionIdsToFetch);
+                // 2. Belirlenen işlemlerin evraklarını çek
+                const { data: txDocs } = await supabase
+                    .from('transaction_documents')
+                    .select('document_name, document_url')
+                    .in('transaction_id', transactionIdsToFetch);
+                    
                 if (txDocs && txDocs.length > 0) {
                     txDocs.forEach(d => attachments.push({ name: d.document_name, url: d.document_url }));
                 }
@@ -1615,7 +1627,12 @@ export const attachmentService = {
 
             // 3. Gelen ana evrakı (Tebliğ edilen PDF) kontrol et
             if (sourceDocumentId) {
-                const { data: docData } = await supabase.from('incoming_documents').select('file_name, file_url').eq('id', sourceDocumentId).maybeSingle();
+                const { data: docData } = await supabase
+                    .from('incoming_documents')
+                    .select('file_name, file_url')
+                    .eq('id', sourceDocumentId)
+                    .maybeSingle();
+                    
                 if (docData && docData.file_url) {
                     attachments.push({ name: docData.file_name || 'Tebliğ Evrakı.pdf', url: docData.file_url });
                 }
