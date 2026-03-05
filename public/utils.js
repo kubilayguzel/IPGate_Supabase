@@ -1,7 +1,5 @@
 // js/utils.js
 
-// js/utils.js
-
 // Bildirimleri göstermek için kullanılan fonksiyon
 export function showNotification(message, type = 'info', duration = 3000) {
     // 1. Konteyneri kontrol et, yoksa dinamik olarak oluştur
@@ -259,71 +257,64 @@ export async function exportTableToExcel(tableId, filename = 'rapor') {
     const headerCellsHtml = Array.from(headerRowHtml.children);
 
     let headersForExcel = [];
-    let imageColExcelIndex = -1; // 0-based index in the final Excel rowData array
+    let imageColExcelIndex = -1; 
     
-    // Determine the columns to export and their final order in Excel
     headerCellsHtml.forEach((th) => {
         const headerText = th.textContent.trim();
         if (headerText === 'İşlemler') {
-            return; // Skip Actions column
+            return; 
         }
         headersForExcel.push(headerText);
         if (headerText === 'Marka Görseli') {
-            imageColExcelIndex = headersForExcel.length - 1; // 0-based index in headersForExcel
+            imageColExcelIndex = headersForExcel.length - 1; 
         }
     });
-    worksheet.addRow(headersForExcel); // Add header row
+    worksheet.addRow(headersForExcel); 
 
-    // Apply header style
     worksheet.getRow(1).eachCell((cell) => {
-        cell.font = { bold: true, color: { argb: 'FFFFFFFF' } }; // White font
+        cell.font = { bold: true, color: { argb: 'FFFFFFFF' } }; 
         cell.fill = {
             type: 'pattern',
             pattern: 'solid',
-            fgColor: { argb: 'FF1E3C72' } // Dark blue background (#1e3c72)
+            fgColor: { argb: 'FF1E3C72' } 
         };
         cell.alignment = { vertical: 'middle', horizontal: 'center' };
         cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
     });
 
-    // 2. Add Table Data and Images
-    const rowsHtml = table.querySelectorAll('tbody tr'); // Original table rows
+    const rowsHtml = table.querySelectorAll('tbody tr'); 
     const imagePromises = [];
 
     rowsHtml.forEach((rowHtml) => {
-        // Only process visible rows (filtered by display style)
         if (rowHtml.style.display === 'none') {
             return;
         }
 
-        const rowData = new Array(headersForExcel.length).fill(''); // Excel'e gidecek satır verisi için boş dizi oluştur
-        const cellsHtml = Array.from(rowHtml.children); // Cells of the current HTML row
+        const rowData = new Array(headersForExcel.length).fill(''); 
+        const cellsHtml = Array.from(rowHtml.children); 
         
-        // Use a map for robust cell-to-header mapping
-        const cellMap = new Map(); // Map: headerText -> cellElement
+        const cellMap = new Map(); 
         headerCellsHtml.forEach((th, htmlColIndex) => {
             const headerText = th.textContent.trim();
-            if (headerText !== 'İşlemler') { // Only map columns we intend to export
+            if (headerText !== 'İşlemler') { 
                 cellMap.set(headerText, cellsHtml[htmlColIndex]);
             }
         });
 
         headersForExcel.forEach((headerLabel, excelColIndex) => {
-            const cell = cellMap.get(headerLabel); // Get the corresponding HTML cell using headerLabel
+            const cell = cellMap.get(headerLabel); 
 
-            if (!cell) { // If HTML cell is missing for this column (e.g., dynamic column not rendered)
+            if (!cell) { 
                 rowData[excelColIndex] = ''; 
-            } else if (headerLabel === 'Marka Görseli') { // Image column
+            } else if (headerLabel === 'Marka Görseli') { 
                 const imgElement = cell.querySelector('img.trademark-image-thumbnail');
                 if (imgElement && imgElement.src) {
-                    // Placeholder for the image cell in rowData. The image will be added separately.
                     rowData[excelColIndex] = ''; 
-                    // Promise'i burada oluşturup, resolve içinde Excel'deki satır numarasını dinamik olarak alacağız
                     imagePromises.push(new Promise((resolve) => {
                         const img = new Image();
                         img.onload = () => {
                             const canvas = document.createElement('canvas');
-                            const imgSize = 50; // Standard size for thumbnail in Excel
+                            const imgSize = 50; 
                             canvas.width = imgSize;
                             canvas.height = imgSize;
                             const ctx = canvas.getContext('2d');
@@ -331,8 +322,7 @@ export async function exportTableToExcel(tableId, filename = 'rapor') {
                             const base64Data = canvas.toDataURL('image/png').split(';base64,')[1];
                             resolve({ 
                                 base64: base64Data, 
-                                excelCol: excelColIndex, // 0-based Excel column index for addImage
-                                // rowHtmlElement'i döndürüp, sonraki adımda onun Excel'deki satır numarasını bulacağız.
+                                excelCol: excelColIndex, 
                                 rowHtmlElement: rowHtml 
                             }); 
                         };
@@ -343,17 +333,15 @@ export async function exportTableToExcel(tableId, filename = 'rapor') {
                         img.src = imgElement.src;
                     }));
                 } else {
-                    rowData[excelColIndex] = cell.textContent.trim() || '-'; // Add text if no image
+                    rowData[excelColIndex] = cell.textContent.trim() || '-'; 
                 }
-            } else { // Other data columns
+            } else { 
                 rowData[excelColIndex] = cell.textContent.trim();
             }
         });
-        worksheet.addRow(rowData); // Her görünür HTML satırı için bir Excel satırı ekle
-        // actualExcelDataRowIndex kaldırıldı, addedRow.number kullanılacak
+        worksheet.addRow(rowData); 
     });
 
-    // Add images to Excel
     const loadedImages = await Promise.all(imagePromises);
     loadedImages.forEach(imgData => {
         if (imgData && imgData.base64) {
@@ -362,41 +350,32 @@ export async function exportTableToExcel(tableId, filename = 'rapor') {
                 extension: 'png',
             });
 
-            // Resmin ait olduğu HTML satırının Excel'deki gerçek satır numarasını bul
-            // `rowHtmlElement`'in orijinal `rowsHtml` (visible olanlar) dizisindeki indeksini bulmalıyız.
             const rowIndexInVisibleHtmlRows = Array.from(table.querySelectorAll('tbody tr')).filter(r => r.style.display !== 'none').indexOf(imgData.rowHtmlElement);
-            
-            // `ExcelJS.Row` objesinin `number` özelliği 1-tabanlıdır.
-            // İlk veri satırı (header sonrası) Excel'de 2. satır numarasında (index 1) yer alır.
-            // Yani, (0-tabanlı visible HTML row index) + 2 = Excel'deki 1-tabanlı row number
             const excelRowNumber = rowIndexInVisibleHtmlRows + 2; 
 
             worksheet.addImage(imageId, {
-                tl: { col: imgData.excelCol, row: excelRowNumber - 1 }, // `row` 0-tabanlı index bekler, o yüzden -1
-                ext: { width: 50, height: 50 } // Resim boyutu
+                tl: { col: imgData.excelCol, row: excelRowNumber - 1 }, 
+                ext: { width: 50, height: 50 } 
             });
             
-            // Hücre yüksekliğini ayarla
-            worksheet.getRow(excelRowNumber).height = 55; // Excel'deki 1-tabanlı rowNumber'ı kullan
+            worksheet.getRow(excelRowNumber).height = 55; 
         }
     });
 
-    // Auto-adjust column widths
     worksheet.columns.forEach(column => {
         let maxLength = 0;
         column.eachCell({ includeEmpty: true }, (cell) => {
             const columnText = cell.value ? cell.value.toString() : '';
             maxLength = Math.max(maxLength, columnText.length);
         });
-        const headerLabel = headersForExcel[column.number - 1]; // Get header label (0-based array index)
+        const headerLabel = headersForExcel[column.number - 1]; 
         if (headerLabel && headerLabel.includes('Marka Görseli')) { 
-            column.width = 10; // Fixed width for image column
+            column.width = 10; 
         } else {
             column.width = Math.max(maxLength + 2, 10); 
         }
     });
     
-    // Save the file
     const buffer = await workbook.xlsx.writeBuffer();
     saveAs(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `${filename}.xlsx`);
     
@@ -412,10 +391,8 @@ export function exportTableToPdf(tableId, filename = 'rapor') {
         return;
     }
 
-    // Clone the table content for printing
     const printContent = table.cloneNode(true);
     
-    // Remove Actions column and filter row
     const headerRow = printContent.querySelector('thead tr#portfolioTableHeaderRow');
     const filterRow = printContent.querySelector('thead tr#portfolioTableFilterRow');
 
@@ -424,24 +401,23 @@ export function exportTableToPdf(tableId, filename = 'rapor') {
         Array.from(headerRow.children).forEach((th, index) => {
             if (th.textContent.includes('İşlemler')) {
                 actionsHeaderIndex = index;
-                th.remove(); // Remove header cell
+                th.remove(); 
             }
         });
     }
 
     if (filterRow) {
-        filterRow.remove(); // Remove filter row
+        filterRow.remove(); 
     }
     
     if (actionsHeaderIndex !== -1) {
         Array.from(printContent.querySelectorAll('tbody tr')).forEach(row => {
             if (row.children[actionsHeaderIndex]) {
-                row.children[actionsHeaderIndex].remove(); // Remove action cell from each row
+                row.children[actionsHeaderIndex].remove(); 
             }
         });
     }
 
-    // Reset trademark image styles for PDF export
     Array.from(printContent.querySelectorAll('img.trademark-image-thumbnail')).forEach(img => {
         img.style.transition = 'none';
         img.style.transform = 'none';
@@ -503,109 +479,78 @@ export function exportTableToPdf(tableId, filename = 'rapor') {
     html2pdf().from(printContent).set(opt).save();
     showNotification(`Tablo başarıyla '${filename}.pdf' olarak dışa aktarıldı!`, 'success');
 }
-// --- YENİ EKLENEN KISIM: Resmi Tatiller ve Tarih Hesaplama Fonksiyonları ---
 
-// Türkiye'nin 2025 ve 2026 yılları için resmi tatiller listesi (YYYY-MM-DD formatında)
+// --- Resmi Tatiller ve Tarih Hesaplama Fonksiyonları ---
+
 export const TURKEY_HOLIDAYS = [
     // 2025 Tatilleri
-    "2025-01-01", // Yılbaşı
-    "2025-03-30", // Ramazan Bayramı 1. Gün (Arife: 2025-03-29 - Cumartesi, yarım gün - hafta sonu)
-    "2025-03-31", // Ramazan Bayramı 2. Gün
-    "2025-04-01", // Ramazan Bayramı 3. Gün
-    "2025-04-23", // Ulusal Egemenlik ve Çocuk Bayramı
-    "2025-05-01", // Emek ve Dayanışma Günü
-    "2025-05-19", // Atatürk'ü Anma, Gençlik ve Spor Bayramı
-    "2025-06-06", // Kurban Bayramı 1. Gün (Arife: 2025-06-05 - Perşembe, yarım gün)
-    "2025-06-07", // Kurban Bayramı 2. Gün (Cumartesi - hafta sonu)
-    "2025-06-08", // Kurban Bayramı 3. Gün (Pazar - hafta sonu)
-    "2025-06-09", // Kurban Bayramı 4. Gün
-    "2025-07-15", // Demokrasi ve Milli Birlik Günü
-    "2025-08-30", // Zafer Bayramı (Cumartesi - hafta sonu)
-    "2025-10-29", // Cumhuriyet Bayramı (Arife: 2025-10-28 - Salı, yarım gün)
+    "2025-01-01", 
+    "2025-03-30", 
+    "2025-03-31", 
+    "2025-04-01", 
+    "2025-04-23", 
+    "2025-05-01", 
+    "2025-05-19", 
+    "2025-06-06", 
+    "2025-06-07", 
+    "2025-06-08", 
+    "2025-06-09", 
+    "2025-07-15", 
+    "2025-08-30", 
+    "2025-10-29", 
 
     // 2026 Tatilleri
-    "2026-01-01", // Yılbaşı
-    "2026-03-19", // Ramazan Bayramı 1. Gün (Arife: 2026-03-18 - Çarşamba, yarım gün)
-    "2026-03-20", // Ramazan Bayramı 2. Gün
-    "2026-03-21", // Ramazan Bayramı 3. Gün (Cumartesi - hafta sonu)
-    "2026-03-22", // Ramazan Bayramı 4. Gün (Pazar - hafta sonu)
-    "2026-04-23", // Ulusal Egemenlik ve Çocuk Bayramı
-    "2026-05-01", // Emek ve Dayanışma Günü
-    "2026-05-27", // Kurban Bayramı 1. Gün (Arife: 2026-05-26 - Salı, yarım gün)
-    "2026-05-28", // Kurban Bayramı 2. Gün
-    "2026-05-29", // Kurban Bayramı 3. Gün
-    "2026-05-30", // Kurban Bayramı 4. Gün (Cumartesi - hafta sonu)
-    "2026-07-15", // Demokrasi ve Milli Birlik Günü
-    "2026-08-30", // Zafer Bayramı (Pazar - hafta sonu)
-    "2026-10-29"  // Cumhuriyet Bayramı (Arife: 2026-10-28 - Çarşamba, yarım gün)
+    "2026-01-01", 
+    "2026-03-19", 
+    "2026-03-20", 
+    "2026-03-21", 
+    "2026-03-22", 
+    "2026-04-23", 
+    "2026-05-01", 
+    "2026-05-27", 
+    "2026-05-28", 
+    "2026-05-29", 
+    "2026-05-30", 
+    "2026-07-15", 
+    "2026-08-30", 
+    "2026-10-29"  
 ];
 
-/**
- * Bir tarihin hafta sonu olup olmadığını kontrol eder.
- * @param {Date} date - Kontrol edilecek tarih objesi.
- * @returns {boolean} - Hafta sonu ise true, değilse false.
- */
 export function isWeekend(date) {
-    const day = date.getDay(); // 0 for Sunday, 6 for Saturday
+    const day = date.getDay(); 
     return day === 0 || day === 6;
 }
 
-/**
- * Bir tarihin resmi tatil olup olmadığını kontrol eder.
- * Tatiller TURKEY_HOLIDAYS dizisinde YYYY-MM-DD formatında olmalıdır.
- * @param {Date} date - Kontrol edilecek tarih objesi.
- * @param {string[]} holidays - YYYY-MM-DD formatında tatil tarihleri dizisi.
- * @returns {boolean} - Tatil ise true, değilse false.
- */
 export function isHoliday(date, holidays) {
-    // YENİ: Tarihin yerel yıl, ay ve gün bileşenlerini kullanarak string oluştur
     const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0'); // Ay 0'dan başladığı için +1
+    const month = String(date.getMonth() + 1).padStart(2, '0'); 
     const day = String(date.getDate()).padStart(2, '0');
-    const dateString = `${year}-${month}-${day}`; // YYYY-MM-DD formatı
+    const dateString = `${year}-${month}-${day}`; 
 
     return holidays.includes(dateString);
 }
 
-/**
- * Bir tarihe belirtilen ay kadar ekler.
- * Yerel saat diliminde güvenli ay hesaplaması yapar.
- * @param {Date} date - Başlangıç tarihi.
- * @param {number} months - Eklenecek ay sayısı.
- * @returns {Date} - Yeni tarih objesi.
- */
 export function addMonthsToDate(date, months) {
-    // Yerel saat diliminde güvenli ay hesaplaması
     const year = date.getFullYear();
     const month = date.getMonth();
     const day = date.getDate();
     
-    // Yeni tarih objesi oluştur
     const newDate = new Date(year, month + months, day);
-    
-    // Debug için log ekle
     console.log(`DEBUG addMonthsToDate: ${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')} + ${months} ay = ${newDate.getFullYear()}-${String(newDate.getMonth()+1).padStart(2,'0')}-${String(newDate.getDate()).padStart(2,'0')}`);
     
     return newDate;
 }
 
-/**
- * Belirtilen tarihten itibaren bir sonraki ilk iş gününü bulur (hafta sonu ve resmi tatil kontrolü yaparak).
- * @param {Date} startDate - Başlangıç tarihi.
- * @param {string[]} holidays - YYYY-MM-DD formatında tatil tarihleri dizisi.
- * @returns {Date} - Bir sonraki ilk iş günü.
- */
 export function findNextWorkingDay(startDate, holidays) {
     let currentDate = new Date(startDate);
-    
-    // Saati ve dakikayı sıfırla, böylece tarih karşılaştırmaları doğru olur
     currentDate.setHours(0, 0, 0, 0); 
 
     while (isWeekend(currentDate) || isHoliday(currentDate, holidays)) {
-        currentDate.setDate(currentDate.getDate() + 1); // Bir sonraki güne geç
+        currentDate.setDate(currentDate.getDate() + 1); 
     }
     return currentDate;
 }
+
 export const ORIGIN_TYPES = [
     { value: 'TÜRKPATENT', text: 'TÜRKPATENT' },
     { value: 'WIPO', text: 'WIPO' },
@@ -628,12 +573,13 @@ export function debounce(func, wait) {
 }
 
 /**
- * Tarih objesini veya stringini gg/aa/yyyy formatına çevirir.
+ * Supabase (PostgreSQL) ve standart JS Date uyumlu tarih formatlayıcı
  */
 export function formatToTRDate(dateVal) {
     if (!dateVal) return '-';
     try {
-        const d = (dateVal.toDate && typeof dateVal.toDate === 'function') ? dateVal.toDate() : new Date(dateVal);
+        // 🔥 Eski Firestore .toDate() mantığı temizlendi, sadece native JS Date kullanılıyor
+        const d = new Date(dateVal);
         if (isNaN(d.getTime())) return '-';
         
         const day = String(d.getDate()).padStart(2, '0');
