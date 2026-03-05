@@ -19,10 +19,10 @@ document.getElementById("searchButton").addEventListener("click", async () => {
   recordsContainer.innerHTML = "<p>Aranıyor...</p>";
 
   try {
-    // 1. Bültenin varlığını kontrol et
+    // 1. Bültenin varlığını kontrol et ve ID'sini al
     const { data: bulletinData, error: bulletinError } = await supabase
       .from("trademark_bulletins")
-      .select("*")
+      .select("id, bulletin_no")
       .eq("bulletin_no", bulletinNo)
       .limit(1);
 
@@ -31,12 +31,13 @@ document.getElementById("searchButton").addEventListener("click", async () => {
       return;
     }
 
-    // 2. Bültene ait kayıtları (Markaları) getir
-    // 🔥 DÜZELTME: Limit eklenmediğinde Supabase 1000'de keser veya sayfa donar. Limit 5000'e çekildi.
+    const bulletinId = bulletinData[0].id; // Gerçek bulletin ID'sini aldık
+
+    // 2. Bültene ait kayıtları (Markaları) bulletin_id kullanarak getir
     const { data: records, error: recordsError } = await supabase
       .from("trademark_bulletin_records")
       .select("*")
-      .eq("bulletin_no", bulletinNo)
+      .eq("bulletin_id", bulletinId)
       .limit(5000); 
 
     if (recordsError || !records || records.length === 0) {
@@ -60,21 +61,37 @@ document.getElementById("searchButton").addEventListener("click", async () => {
         <tbody>`;
 
     for (const r of records) {
-      let imageUrl = "";
-      if (r.image_path) {
-        // Supabase Storage'dan Public URL al
-        const { data } = supabase.storage.from("brand_images").getPublicUrl(r.image_path);
-        imageUrl = data.publicUrl || "";
+      let imageUrlHtml = "-";
+      // Şemadaki doğru kolon adı: image_url
+      if (r.image_url) {
+        const { data } = supabase.storage.from("brand_images").getPublicUrl(r.image_url);
+        if (data && data.publicUrl) {
+            imageUrlHtml = `<img src="${data.publicUrl}" loading="lazy" class="marka-image" style="max-height: 60px; object-fit: contain;">`;
+        }
+      }
+
+      // JSONB array formatındaki holders alanını düzgün göstermek için ayırıyoruz
+      let holdersText = "-";
+      if (r.holders && Array.isArray(r.holders) && r.holders.length > 0) {
+          holdersText = r.holders.join("<br>");
+      } else if (typeof r.holders === 'string') {
+          holdersText = r.holders;
+      }
+
+      // nice_classes array formatında, string'e çeviriyoruz
+      let classesText = "-";
+      if (r.nice_classes && Array.isArray(r.nice_classes)) {
+          classesText = r.nice_classes.join(", ");
       }
 
       html += `
         <tr>
-          <td>${r.application_no || "-"}</td>
-          <td>${imageUrl ? `<img src="${imageUrl}" loading="lazy" class="marka-image" style="max-height: 60px; object-fit: contain;">` : "-"}</td>
-          <td>${r.mark_name || "-"}</td>
-          <td>${r.holders || "-"}</td>
+          <td>${r.application_number || "-"}</td>
+          <td>${imageUrlHtml}</td>
+          <td>${r.brand_name || "-"}</td>
+          <td>${holdersText}</td>
           <td>${r.application_date || "-"}</td>
-          <td>${r.nice_classes || "-"}</td>
+          <td>${classesText}</td>
         </tr>`;
     }
 
