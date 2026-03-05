@@ -335,9 +335,6 @@ class TableManager {
             }).filter(Boolean).join(', ');
         } else if (columnKey === 'applicationDate'|| columnKey === 'operationalDueDate' || columnKey === 'officialDueDate') {
             // Firestore Timestamp objesi ise Date objesine çevir
-            if (record[columnKey] && typeof record[columnKey].toDate === 'function') {
-                return record[columnKey].toDate().toLocaleDateString('tr-TR');
-            }
             return record[columnKey] ? new Date(record[columnKey]).toLocaleDateString('tr-TR') : null;
         } else if (columnKey === 'assignedTo') { // Görev yönetimi için, atanan kullanıcının UID'sini isme dönüştür
              const assignedUser = this.allUsers.find(u => u.id === record.assignedTo_uid);
