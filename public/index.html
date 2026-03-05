@@ -557,6 +557,10 @@
             this.setLoading('signin', true);
 
             try {
+                // Her ihtimale karşı eski local storage kalıntılarını temizle (Temiz Giriş)
+                localStorage.removeItem('currentUser');
+                localStorage.removeItem('app_layout_v2_menu');
+
                 // Supabase Doğrudan Giriş İşlemi
                 const { data, error } = await supabase.auth.signInWithPassword({ 
                     email: email, 
@@ -595,7 +599,7 @@
             this.setLoading('signup', true);
 
             try {
-                // Supabase Kayıt İşlemi
+                // 1. Supabase Auth Kayıt İşlemi
                 const { data, error } = await supabase.auth.signUp({
                     email: email,
                     password: password,
@@ -608,6 +612,22 @@
                 });
 
                 if (error) throw error;
+
+                // 2. 🔥 GÜVENLİK YAMASI: Kullanıcıyı public.users tablosuna kaydet!
+                // Supabase PostgreSQL'de trigger kullanılmadıysa manuel olarak public.users tablosuna kayıt atılır.
+                if (data && data.user) {
+                    const { error: insertError } = await supabase.from('users').insert({
+                        id: data.user.id,
+                        email: email,
+                        display_name: name,
+                        role: 'user' // Varsayılan rol
+                    });
+                    
+                    // Eğer veritabanında otomatik trigger yazılmışsa ve bu işlem duplicate (23505) hatası verirse bunu yoksayabiliriz.
+                    if (insertError && insertError.code !== '23505') {
+                        console.warn("Kullanıcı public.users tablosuna kopyalanamadı:", insertError);
+                    }
+                }
 
                 showNotification('Kayıt başarılı! Şimdi giriş yapabilirsiniz.', 'success');
                 
