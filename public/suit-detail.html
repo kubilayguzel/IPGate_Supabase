@@ -133,12 +133,10 @@
         </main>
     </div>
 
-    <script type="module">
+<script type="module">
         import { loadSharedLayout } from './js/layout-loader.js';
-        import { db, auth } from './firebase-config.js';
-        import { doc, getDoc, collection, getDocs, orderBy, query } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
-        import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
-        import { showNotification, STATUSES,formatToTRDate } from './utils.js';
+        import { supabase } from './supabase-config.js';
+        import { showNotification, STATUSES, formatToTRDate } from './utils.js';
 
         const params = new URLSearchParams(window.location.search);
         const suitId = params.get('id');
@@ -148,45 +146,65 @@
         // Başlangıç
         (async function() {
             await loadSharedLayout();
-            onAuthStateChanged(auth, async (user) => {
-                if (!user) return window.location.href = 'index.html';
-                if (!suitId) return window.location.href = 'portfolio.html';
-                await loadSuitData();
-                await loadSuitTransactions(); // Timeline ve Belgeler Yükle
-            });
+            const { data: { session } } = await supabase.auth.getSession();
+            
+            if (!session) return window.location.href = 'index.html';
+            if (!suitId) return window.location.href = 'portfolio.html';
+            
+            await loadSuitData();
+            await loadSuitTransactions(); // Timeline ve Belgeler Yükle
         })();
 
         // Dava Verilerini Yükle ve Görüntüle (Read-Only)
         async function loadSuitData() {
             try {
-                const docRef = doc(db, 'suits', suitId);
-                const snap = await getDoc(docRef);
+                // 1. Supabase'den Dava verisini çek
+                const { data, error } = await supabase
+                    .from('suits')
+                    .select('*')
+                    .eq('id', suitId)
+                    .single();
                 
-                if (!snap.exists()) {
+                if (error || !data) {
                     alert('Dava bulunamadı.');
                     return window.location.href = 'portfolio.html';
                 }
 
-                const data = snap.data();
-                const details = data.suitDetails || {};
-                currentDocuments = data.documents || [];
+                // 2. Müvekkil (Client) bilgisini Persons tablosundan çek
+                let clientName = '-';
+                if (data.client_id) {
+                    const { data: clientData } = await supabase.from('persons').select('name').eq('id', data.client_id).single();
+                    if (clientData) clientName = clientData.name;
+                }
+
+                // 3. Konu Varlık (IP Record) bilgisini çek
+                let subjectAssetTitle = data.title || '-';
+                if (data.ip_record_id) {
+                    const { data: ipData } = await supabase.from('ip_records').select('application_number, ip_record_trademark_details(brand_name)').eq('id', data.ip_record_id).single();
+                    if (ipData) {
+                        const brandName = ipData.ip_record_trademark_details?.[0]?.brand_name || ipData.ip_record_trademark_details?.brand_name;
+                        subjectAssetTitle = brandName || ipData.application_number || subjectAssetTitle;
+                    }
+                }
+
+                // 4. Davaya ait ana belgeleri çek
+                const { data: docsData } = await supabase.from('suit_documents').select('*').eq('suit_id', suitId);
+                currentDocuments = docsData || [];
                 
                 // Başlıkları Güncelle
-                const displayTitle = details.caseNo || data.title || 'Dava Detayı';
+                const displayTitle = data.file_no || data.title || 'Dava Detayı';
                 document.getElementById('suitTitleHeader').textContent = displayTitle;
-                document.getElementById('suitSubtitleHeader').textContent = `Dosya No: ${details.caseNo || '-'}`;
+                document.getElementById('suitSubtitleHeader').textContent = `Dosya No: ${data.file_no || '-'}`;
 
                 // --- VERİLERİ YERLEŞTİR (TEXT CONTENT) ---
-                
-                // 1. Temel Bilgiler
-                setText('viewSuitType', data.suitType || data.transactionType?.alias || data.transactionType?.name);
-                setText('viewCourt', details.court);
-                setText('viewCaseNo', details.caseNo);
-                setText('viewOpenedDate', formatDate(details.openingDate));
-                setText('viewSubjectAsset', data.subjectAsset?.title || data.title); // Konu Varlık
+                setText('viewSuitType', data.suit_type);
+                setText('viewCourt', data.court_name);
+                setText('viewCaseNo', data.file_no);
+                setText('viewOpenedDate', formatDate(data.opening_date));
+                setText('viewSubjectAsset', subjectAssetTitle);
 
-                // Durum Gösterimi (Hem Root Hem Detail Kontrolü)
-                let statusVal = data.suitStatus || details.suitStatus || 'continue';
+                // Durum Gösterimi
+                let statusVal = data.status || 'continue';
                 let statusObj = STATUSES.litigation ? STATUSES.litigation.find(s => s.value === statusVal) : null;
                 const statusText = statusObj ? statusObj.text : statusVal;
                 const statusColor = statusObj && statusObj.color ? statusObj.color : 'secondary';
@@ -194,16 +212,16 @@
                 const statusEl = document.getElementById('viewSuitStatus');
                 statusEl.innerHTML = `<span class="badge badge-${statusColor}" style="font-size: 1rem; padding: 8px 12px;">${statusText}</span>`;
 
-                // 2. Taraf Bilgileri
-                setText('viewClientName', data.client?.name);
-                setText('viewClientRole', formatRole(data.clientRole || data.client?.role));
-                setText('viewOpposingParty', details.opposingParty);
-                setText('viewOpposingCounsel', details.opposingCounsel);
+                // Taraf Bilgileri
+                setText('viewClientName', clientName);
+                setText('viewClientRole', formatRole(data.client_role));
+                setText('viewOpposingParty', data.opposing_party);
+                setText('viewOpposingCounsel', data.opposing_counsel);
 
-                // 3. Açıklama
+                // Açıklama
                 const descEl = document.getElementById('viewDescription');
-                if (details.description) {
-                    descEl.textContent = details.description;
+                if (data.description) {
+                    descEl.textContent = data.description;
                 } else {
                     descEl.innerHTML = '<em class="text-muted">Açıklama bulunmuyor.</em>';
                 }
@@ -218,61 +236,53 @@
         async function loadSuitTransactions() {
             const container = document.getElementById('timelineContainer');
             try {
-                // Tarihçeyi tarihe göre tersten sırala (En yeni en üstte)
-                const q = query(collection(db, 'suits', suitId, 'transactions'), orderBy('createdAt', 'desc'));
-                const snap = await getDocs(q);
+                // İşlem geçmişini (Transactions) ve ilgili İşlem Türü adını çek (JOIN)
+                const { data: snap, error } = await supabase
+                    .from('transactions')
+                    .select(`
+                        *,
+                        transaction_types (name)
+                    `)
+                    .eq('ip_record_id', suitId) 
+                    .order('transaction_date', { ascending: false });
                 
-                if (snap.empty) {
+                if (error) throw error;
+
+                if (!snap || snap.length === 0) {
                     container.innerHTML = '<p class="text-muted text-center">Henüz işlem geçmişi yok.</p>';
                     return;
                 }
 
                 // Her bir transaction satırını işle
-                const timelineItems = await Promise.all(snap.docs.map(async (docSnapshot) => {
-                    const t = docSnapshot.data();
-                    
-                    // Görüntülenecek veriler
-                    const date = formatToTRDate(t.creationDate);
-                    const desc = t.description || 'İşlem detay girilmemiş.';
-                    const typeName = t.transactionTypeName || 'İşlem'; 
+                const timelineItems = await Promise.all(snap.map(async (t) => {
+                    const date = formatToTRDate(t.transaction_date || t.created_at);
+                    const desc = t.description || t.note || 'İşlem detay girilmemiş.';
+                    const typeName = t.transaction_types?.name || 'İşlem'; 
                     
                     let docs = [];
 
-                    // --- MANTIK DEĞİŞİKLİĞİ ---
-                    
-                    // DURUM 1: Bu işlem bir Task (İş) tarafından tetiklendiyse -> Task'a git
-                    if (t.triggeringTaskId && t.triggeringTaskId !== 'manual_entry') {
+                    // DURUM 1: Bu işlem bir Task (İş) tarafından tetiklendiyse -> Task belgelerini al
+                    if (t.task_id && t.task_id !== 'manual_entry') {
                         try {
-                            const taskRef = doc(db, 'tasks', t.triggeringTaskId);
-                            const taskSnap = await getDoc(taskRef);
-                            if (taskSnap.exists()) {
-                                const taskData = taskSnap.data();
-                                if (taskData.documents && Array.isArray(taskData.documents)) {
-                                    docs = taskData.documents;
-                                }
-                            }
+                            const { data: taskDocs } = await supabase.from('task_documents').select('*').eq('task_id', t.task_id);
+                            if (taskDocs) docs = taskDocs;
                         } catch (err) {
-                            console.warn('Task belgesi çekilemedi:', t.triggeringTaskId, err);
+                            console.warn('Task belgesi çekilemedi:', err);
                         }
                     } 
-                    // DURUM 2: Task yoksa (Manuel Giriş) VE bu Ana Dava Açılış (Parent) işlemiyse -> Suit'e git
-                    else if (t.transactionHierarchy === 'parent') {
-                        // Global değişkendeki (currentDocuments) suit belgelerini kullan
-                        if (currentDocuments && Array.isArray(currentDocuments)) {
-                            docs = currentDocuments;
-                        }
+                    // DURUM 2: Task yoksa VE bu Ana Dava Açılış (Parent) işlemiyse -> Suit belgelerini al
+                    else if (t.transaction_hierarchy === 'parent') {
+                        docs = currentDocuments;
                     }
-                    // Not: Diğer ara manuel işlemlerin şu an belge tutma özelliği yok, ilerde eklenirse buraya bakılır.
 
-                    
-                    // --- HTML OLUŞTURMA (Belgeler Varsa) ---
+                    // HTML OLUŞTURMA (Belgeler Varsa)
                     let docsHtml = '';
                     if (docs.length > 0) {
                         docsHtml = `<div class="mt-2 pt-2 border-top">`;
                         docsHtml += docs.map(d => `
-                            <a href="${d.url || d.fileUrl || d.downloadURL}" target="_blank" class="d-inline-flex align-items-center mr-2 mb-1 p-2 border rounded bg-white text-decoration-none text-dark shadow-sm" style="font-size: 0.85em;">
+                            <a href="${d.document_url || d.url}" target="_blank" class="d-inline-flex align-items-center mr-2 mb-1 p-2 border rounded bg-white text-decoration-none text-dark shadow-sm" style="font-size: 0.85em;">
                                 <i class="fas fa-file-pdf text-danger mr-2"></i> 
-                                <span class="text-truncate" style="max-width: 180px;">${d.name || d.fileName || 'Belge'}</span>
+                                <span class="text-truncate" style="max-width: 180px;">${d.document_name || d.file_name || 'Belge'}</span>
                             </a>
                         `).join('');
                         docsHtml += `</div>`;
@@ -284,7 +294,7 @@
                             <div class="timeline-content">
                                 <div class="d-flex justify-content-between align-items-start">
                                     <div class="timeline-title">${typeName}</div>
-                                    ${(t.triggeringTaskId && t.triggeringTaskId !== 'manual_entry') ? `<span class="badge badge-light border" style="font-size:0.7em;">Ref: ${t.triggeringTaskId}</span>` : ''}
+                                    ${(t.task_id && t.task_id !== 'manual_entry') ? `<span class="badge badge-light border" style="font-size:0.7em;">Ref: ${t.task_id.substring(0,8)}...</span>` : ''}
                                 </div>
                                 <div class="timeline-desc">${desc}</div>
                                 ${docsHtml}
@@ -317,6 +327,6 @@
             return roles[role.toLowerCase()] || role;
         }
     </script>
-    <script type="module" src="./js/layout-loader.js"></script>
+<script type="module" src="./js/layout-loader.js"></script>
 </body>
 </html>
