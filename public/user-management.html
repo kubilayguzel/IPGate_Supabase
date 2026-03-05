@@ -562,7 +562,7 @@
     </div>
 </div>
 <script type="module">
-    import { supabase, authService, personService } from './supabase-config.js';
+import { supabase, authService, personService } from './supabase-config.js';
     import { showNotification } from './utils.js';
     import { loadSharedLayout } from './js/layout-loader.js';
 
@@ -826,13 +826,13 @@
 
                 await this.loadPersonsData();
                 
-                // Supabase'den bu kullanıcıya bağlı müşterileri (client) çek
+                // 🔥 YENİ ŞEMA: user_person_links tablosu ve perm_approval, perm_view kolonları
                 if (user.role === 'client') {
-                    const { data } = await supabase.from('user_persons').select('person_id, permissions').eq('user_id', userId);
+                    const { data } = await supabase.from('user_person_links').select('person_id, perm_approval, perm_view').eq('user_id', userId);
                     if (data && data.length > 0) {
                         this.selectedPersons = data.map(link => {
                             const pData = this.allPersons.find(p => p.id === link.person_id);
-                            return pData ? { id: pData.id, name: pData.name, permissions: { type: link.permissions?.approval ? 'approval' : 'view' } } : null;
+                            return pData ? { id: pData.id, name: pData.name, permissions: { type: link.perm_approval ? 'approval' : 'view' } } : null;
                         }).filter(Boolean);
                     } else {
                         this.selectedPersons = [];
@@ -882,16 +882,17 @@
 
                         if (updateErr) throw updateErr;
 
-                        // Rol "client" ise kişi bağlantılarını (user_persons tablosu) güncelle
-                        await supabase.from('user_persons').delete().eq('user_id', userId); // Eski bağları sil
+                        // Rol "client" ise kişi bağlantılarını (user_person_links tablosu) güncelle
+                        await supabase.from('user_person_links').delete().eq('user_id', userId); // Eski bağları sil
                         
                         if (userRole === 'client' && this.selectedPersons.length > 0) {
                             const inserts = this.selectedPersons.map(p => ({
                                 user_id: userId,
                                 person_id: p.id,
-                                permissions: { approval: p.permissions.type === 'approval', view: true }
+                                perm_approval: p.permissions.type === 'approval',
+                                perm_view: true
                             }));
-                            await supabase.from('user_persons').insert(inserts);
+                            await supabase.from('user_person_links').insert(inserts);
                         }
 
                         showNotification('Kullanıcı başarıyla güncellendi.', 'success');
@@ -926,7 +927,7 @@
                 showNotification('Siliniyor, lütfen bekleyin...', 'info', 2000);
 
                 try {
-                    // 🚀 ÇÖZÜM: Yeni yazdığımız Supabase Edge Function'ı çağırıyoruz
+                    // Supabase Edge Function'ı çağırıyoruz
                     const { data, error } = await supabase.functions.invoke('delete-user', {
                         body: { userId: userId }
                     });
