@@ -684,77 +684,19 @@ const loadBulletinOptions = async () => {
     const bulletinSelect = document.getElementById('bulletinSelect');
     bulletinSelect.innerHTML = '<option value="">Bülten seçin...</option>';
     
-    // 1. Mevcut (Sistemde Kayıtlı) Bültenleri Çek
+    // Sadece Sistemde Kayıtlı (Yüklenmiş) Bültenleri Çekiyoruz
     const { data: registeredData } = await supabase.from('trademark_bulletins').select('*').order('bulletin_no', { ascending: false });
     
-    // 2. Kalıcı tablodan arama yapılmış bülten ID'lerini çek (Limit 2000 vererek sadece ID'leri hızlıca alıyoruz)
-    const { data: cacheData } = await supabase
-        .from('monitoring_trademark_records')
-        .select('bulletin_id')
-        .not('bulletin_id', 'is', null)
-        .neq('bulletin_id', 'GLOBAL') // Manuel olanları hariç tut
-        .limit(2000); 
-        
-    const allBulletins = new Map();
-    
-    // Önce kayıtlı bültenleri haritaya ekle
     if (registeredData) {
         registeredData.forEach(data => {
             const bulletinKey = `${data.bulletin_no}_${(data.bulletin_date || '').replace(/\D/g, '')}`;
-            allBulletins.set(bulletinKey, { 
-                bulletinNo: data.bulletin_no, 
-                bulletinKey, 
-                hasOriginalBulletin: true, 
-                displayName: `${data.bulletin_no} - ${data.bulletin_date || ''} (Kayıtlı)` 
-            });
-        });
-    }
-    
-    // Sonra geçmiş arama sonuçlarından (bellek) gelenleri haritaya ekle
-    if (cacheData) {
-        cacheData.forEach(rec => {
-            if(!rec.bulletin_id || String(rec.bulletin_id).includes('GLOBAL')) return;
-
-            // bulletin_id: "484_20260112" şeklinde geliyor
-            const parts = String(rec.bulletin_id).split('_');
-            const bulletinNo = parts[0]; // "484"
-            const dateRaw = parts[1] || ''; // "20260112"
-            
-            const normalizedKey = `${bulletinNo}_${dateRaw.replace(/\D/g, '')}`;
-            
-            // Eğer haritada (Kayıtlılarda) yoksa, tarihi düzgünleştirip Bellek olarak ekle
-            if (!allBulletins.has(normalizedKey)) {
-                
-                // YYYYMMDD formatını DD.MM.YYYY formatına çevir
-                let displayDate = dateRaw;
-                if (dateRaw.length === 8 && !isNaN(dateRaw)) {
-                    const yyyy = dateRaw.substring(0, 4);
-                    const mm = dateRaw.substring(4, 6);
-                    const dd = dateRaw.substring(6, 8);
-                    displayDate = `${dd}.${mm}.${yyyy}`;
-                }
-
-                allBulletins.set(normalizedKey, { 
-                    bulletinNo: bulletinNo, 
-                    bulletinKey: normalizedKey, 
-                    hasOriginalBulletin: false, 
-                    // Örn: "484 - 12.01.2026 (Bellek)" şeklinde görünecek
-                    displayName: displayDate ? `${bulletinNo} - ${displayDate} (Bellek)` : `${bulletinNo} (Bellek)` 
-                });
-            }
-        });
-    }
-
-    // Haritayı bülten numarasına göre büyükten küçüğe sırala ve Select box'a bas
-    Array.from(allBulletins.values())
-        .sort((a, b) => parseInt(b.bulletinNo || 0) - parseInt(a.bulletinNo || 0))
-        .forEach(bulletin => {
             const option = document.createElement('option');
-            option.value = bulletin.bulletinKey; 
-            option.dataset.hasOriginalBulletin = bulletin.hasOriginalBulletin; 
-            option.textContent = bulletin.displayName;
+            option.value = bulletinKey; 
+            option.dataset.hasOriginalBulletin = 'true'; 
+            option.textContent = `${data.bulletin_no} - ${data.bulletin_date || ''}`;
             bulletinSelect.appendChild(option);
         });
+    }
 };
 
 const formatCacheData = (r) => ({
@@ -763,12 +705,12 @@ const formatCacheData = (r) => ({
     isSimilar: r.is_similar, holders: r.holders, note: r.note, bs: r.bs_value, imagePath: r.image_path, source: 'cache'
 });
 
-const loadDataFromCache = async (bulletinKey) => {
+const loadDataFromCache = async (realBulletinId) => {
     const noRecordsMessage = document.getElementById('noRecordsMessage');
     const infoMessageContainer = document.getElementById('infoMessageContainer');
     
     try {
-        // 🔥 YENİ DB: Supabase INNER JOIN (!inner) ile ilişkili tablodan verileri tek seferde çekiyoruz
+        // 🔥 YENİ DB: realBulletinId (Örn: bulletin_main_484) ile arama yapıyoruz
         const { data, error } = await supabase
             .from('monitoring_trademark_records')
             .select(`
@@ -777,7 +719,7 @@ const loadDataFromCache = async (bulletinKey) => {
                     id, application_number, application_date, brand_name, nice_classes, holders, image_url, bulletin_id
                 )
             `)
-            .eq('bulletin_record.bulletin_id', bulletinKey);
+            .eq('bulletin_record.bulletin_id', realBulletinId);
 
         if (error) throw error;
 
@@ -799,7 +741,7 @@ const loadDataFromCache = async (bulletinKey) => {
                     imagePath: bRec.image_url,
                     bulletinId: bRec.bulletin_id,
                     isSimilar: item.is_similar === true, 
-                    bs: item.success_chance || '', // 🔥 B.Ş değeri için db'deki success_chance kolonu
+                    bs: item.success_chance || '', 
                     note: item.note || '',   
                     source: item.source || 'cache'
                 };
@@ -841,50 +783,42 @@ const checkCacheAndToggleButtonStates = async () => {
         return;
     }
 
-    if (SimpleLoading) {
-        SimpleLoading.show({
-            text: 'Bülten Sorgulanıyor',
-            subtext: 'Önbellekteki veriler kontrol ediliyor...'
-        });
+    if (typeof SimpleLoading !== 'undefined') {
+        SimpleLoading.show('Kontrol Ediliyor', 'Önbellekteki veriler aranıyor...');
     }
 
     try {
         const selectedOption = bulletinSelect.options[bulletinSelect.selectedIndex];
         const hasOriginalBulletin = selectedOption?.dataset?.hasOriginalBulletin === 'true';
         
-        // Supabase Kalıcı Tabloda bu bültene ait kayıt var mı diye sadece 1 kayıt çekerek kontrol et
+        // 🔥 ÇÖZÜM: '484_20260112' gibi bir değeri 'bulletin_main_484' ID'sine çevir
+        const realBulletinId = `bulletin_main_${bulletinKey.split('_')[0]}`;
+        
+        // Supabase JOIN ile bu bültene ait kaydedilmiş sonuç var mı diye bakıyoruz
         const { data, error } = await supabase
             .from('monitoring_trademark_records')
-            .select('id')
-            .eq('bulletin_id', bulletinKey)
+            .select('id, bulletin_record:trademark_bulletin_records!inner(bulletin_id)')
+            .eq('bulletin_record.bulletin_id', realBulletinId)
             .limit(1);
 
         const hasCache = data && data.length > 0;
 
         if (hasCache) {
-            await loadDataFromCache(bulletinKey);
+            // Sonuçları Yükle
+            await loadDataFromCache(realBulletinId);
             
-            if (startSearchBtn) startSearchBtn.disabled = true;
-            if (researchBtn) researchBtn.disabled = !hasOriginalBulletin;
+            if (startSearchBtn) startSearchBtn.disabled = true;  // Arama Başlat gizlenir
+            if (researchBtn) researchBtn.disabled = false;       // Yeniden Ara aktif olur
             if (btnGenerateReportAndNotifyGlobal) btnGenerateReportAndNotifyGlobal.disabled = allSimilarResults.length === 0;
             
-            const messageType = hasOriginalBulletin ? 'success' : 'warning';
-            const messageText = hasOriginalBulletin ? 
-                'Bu bülten sistemde kayıtlı. Önbellekten sonuçlar yüklendi.' : 
-                'Bu bülten sistemde kayıtlı değil. Sadece eski arama sonuçları gösterilmektedir.';
-            
-            if (infoMessageContainer) infoMessageContainer.innerHTML = `<div class="info-message ${messageType}"><strong>Bilgi:</strong> ${messageText}</div>`;
+            if (infoMessageContainer) infoMessageContainer.innerHTML = `<div class="info-message success"><strong>Bilgi:</strong> Bu bülten için arama daha önce yapılmış. Sonuçlar yüklendi.</div>`;
         } else {
-            if (startSearchBtn) startSearchBtn.disabled = !hasOriginalBulletin;
-            if (researchBtn) researchBtn.disabled = true;
+            // Sonuç yok, Yeni Arama Yapılacak
+            if (startSearchBtn) startSearchBtn.disabled = false; // Arama Başlat aktif olur
+            if (researchBtn) researchBtn.disabled = true;        // Yeniden Ara gizlenir
             if (btnGenerateReportAndNotifyGlobal) btnGenerateReportAndNotifyGlobal.disabled = true;
             
-            const messageType = hasOriginalBulletin ? 'info' : 'error';
-            const messageText = hasOriginalBulletin ? 
-                'Önbellekte veri bulunamadı. "Arama Başlat" butonuna tıklayarak arama yapabilirsiniz.' : 
-                'Bu bülten sistemde kayıtlı değil ve arama sonucu da bulunamadı.';
-                
-            if (infoMessageContainer) infoMessageContainer.innerHTML = `<div class="info-message ${messageType}"><strong>Bilgi:</strong> ${messageText}</div>`;
+            if (infoMessageContainer) infoMessageContainer.innerHTML = `<div class="info-message info"><strong>Bilgi:</strong> Aramayı başlatmak için "Arama Başlat" butonuna tıklayınız.</div>`;
             
             allSimilarResults = [];
             if (pagination) pagination.update(0);
@@ -894,7 +828,7 @@ const checkCacheAndToggleButtonStates = async () => {
         console.error('Cache check error:', error);
         if (infoMessageContainer) infoMessageContainer.innerHTML = `<div class="info-message error"><strong>Hata:</strong> Bülten bilgileri kontrol edilirken bir hata oluştu.</div>`;
     } finally {
-        if (SimpleLoading) SimpleLoading.hide();
+        if (typeof SimpleLoading !== 'undefined') SimpleLoading.hide();
     }
 };
 
@@ -910,17 +844,18 @@ const performSearch = async () => {
     const bulletinKey = bulletinSelect.value;
     if (!bulletinKey || filteredMonitoringTrademarks.length === 0) return;
     
-    SimpleLoading.show('Arama başlatılıyor...', 'Lütfen bekleyin...');
-
-    setTimeout(() => {
-        const loadingContent = document.querySelector('.simple-loading-content');
-        if (loadingContent) {
-            loadingContent.style.top = '80px';
-            loadingContent.style.right = '20px';
-            loadingContent.style.left = 'auto';
-            loadingContent.style.transform = 'none';
-        }
-    }, 100);
+    if (typeof SimpleLoading !== 'undefined') {
+        SimpleLoading.show('Arama başlatılıyor...', 'Lütfen bekleyin...');
+        setTimeout(() => {
+            const loadingContent = document.querySelector('.simple-loading-content');
+            if (loadingContent) {
+                loadingContent.style.top = '80px';
+                loadingContent.style.right = '20px';
+                loadingContent.style.left = 'auto';
+                loadingContent.style.transform = 'none';
+            }
+        }, 100);
+    }
 
     if (noRecordsMessage) noRecordsMessage.style.display = 'none';
     infoMessageContainer.innerHTML = '';
@@ -928,17 +863,15 @@ const performSearch = async () => {
     allSimilarResults = [];
     
     const monitoredMarksPayload = filteredMonitoringTrademarks.map(tm => {
-        // 🔥 DÜZELTME: applicationDate'i ipRecord'dan çek ve Edge Function için ISO formatına çevir
         let appDate = tm.ipRecord?.applicationDate || tm.applicationDate || null;
         let formattedDate = null;
-        
         if (appDate) {
             if (typeof appDate === 'object' && typeof appDate.toDate === 'function') {
-                formattedDate = appDate.toDate().toISOString(); // Firestore Timestamp -> String
+                formattedDate = appDate.toDate().toISOString(); 
             } else if (appDate instanceof Date) {
-                formattedDate = appDate.toISOString(); // JS Date -> String
+                formattedDate = appDate.toISOString(); 
             } else {
-                formattedDate = String(appDate); // Zaten String ise
+                formattedDate = String(appDate); 
             }
         }
 
@@ -949,131 +882,80 @@ const performSearch = async () => {
             brandTextSearch: tm.brandTextSearch || [], 
             niceClassSearch: tm.niceClassSearch || [],
             goodsAndServicesByClass: tm.goodsAndServicesByClass || [],
-            applicationDate: formattedDate // <--- KRİTİK EKSİK BURASIYDI, EKLENDİ
+            applicationDate: formattedDate 
         };
     });
 
     try {
         const onProgress = (pd) => {
             if (pd.status === 'downloading') {
-                 SimpleLoading.update(
-                    `Sonuçlar İndiriliyor...`, 
-                    `Alınan Kayıt: ${pd.message.split('...')[1] || ''}`
-                );
+                 if (typeof SimpleLoading !== 'undefined') SimpleLoading.update(`Sonuçlar Hazırlanıyor...`, pd.message || '');
             } else {
-                SimpleLoading.update(
-                    `Bülten Taranıyor... %${pd.progress || 0}`, 
-                    `Tespit Edilen Benzerlik: ${pd.currentResults || 0} adet`
-                );
+                 if (typeof SimpleLoading !== 'undefined') SimpleLoading.update(`Bülten Taranıyor... %${pd.progress || 0}`, `Tespit Edilen Benzerlik: ${pd.currentResults || 0} adet`);
             }
         };
 
-        const resultsFromCF = await runTrademarkSearch(monitoredMarksPayload, bulletinKey, onProgress);
+        // 1. Arama Motorunu Çalıştır (Edge Function sonuçları bulur ve asıl tabloya kaydeder)
+        await runTrademarkSearch(monitoredMarksPayload, bulletinKey, onProgress);
         
-        if (resultsFromCF?.length > 0) {
-            const processedResults = resultsFromCF.map(hit => ({ ...hit,
-                source: 'new',
-                isSimilar: false, // 🔥 YENİ EKLENEN SATIR: Yeni aramalarda gelen sonuçların hepsi "Benzemez" butonuna sahip olur.
-                monitoredTrademark: filteredMonitoringTrademarks.find(tm => tm.id === hit.monitoredTrademarkId)?.title || hit.markName
-            }));
+        // 2. 🔥 ÇÖZÜM: İşlem bitince verileri doğrudan "Gerçek" ID'leriyle tablodan çekip ekrana bas!
+        const realBulletinId = `bulletin_main_${bulletinKey.split('_')[0]}`;
+        await loadDataFromCache(realBulletinId);
 
-            resultsFromCF.length = 0; 
-
-            const groupedResults = processedResults.reduce((acc, r) => {
-                const key = r.monitoredTrademarkId;
-                (acc[key] = acc[key] || []).push(r);
-                return acc;
-            }, {});
-
-            allSimilarResults = processedResults;
-
-            const entries = Object.entries(groupedResults);
-            const SAVE_BATCH_SIZE = 25; 
-            const DELAY_MS = 1000;
-            
-            SimpleLoading.updateText('Sonuçlar Kaydediliyor...', `0 / ${entries.length} marka grubu`);
-
-            for (let i = 0; i < entries.length; i += SAVE_BATCH_SIZE) {
-                const chunk = entries.slice(i, i + SAVE_BATCH_SIZE);
-                
-                await Promise.all(chunk.map(async ([monitoredTrademarkId, results]) => {
-                     try {
-                         // 1. Gelen sonuçların Application Number'larına göre bülten tablosundaki gerçek ID'lerini (bulletin_record_id) bulalım
-                         const appNumbers = results.map(r => r.applicationNo).filter(Boolean);
-                         const { data: bRecords } = await supabase
-                             .from('trademark_bulletin_records')
-                             .select('id, application_number')
-                             .eq('bulletin_id', bulletinKey)
-                             .in('application_number', appNumbers);
-
-                         const appNoToRecordId = {};
-                         if (bRecords) {
-                             bRecords.forEach(br => { appNoToRecordId[br.application_number] = br.id; });
-                         }
-
-                         // 2. Yalnızca ID'leri ve skorları ilişki tablosuna yazalım (Normalize DB)
-                         const recordsToInsert = results.map(r => {
-                             const bRecId = appNoToRecordId[r.applicationNo];
-                             if (!bRecId) return null; // Bülten tablosunda yoksa ilişki kuramayız
-                             
-                             return {
-                                 monitored_trademark_id: monitoredTrademarkId,
-                                 bulletin_record_id: bRecId,
-                                 similarity_score: r.similarityScore,
-                                 is_similar: false,
-                                 source: 'auto'
-                             };
-                         }).filter(r => r !== null);
-
-                         if (recordsToInsert.length > 0) {
-                             const { error: saveErr } = await supabase
-                                 .from('monitoring_trademark_records')
-                                 .insert(recordsToInsert);
-                             if (saveErr) throw saveErr;
-                         }
-
-                     } catch (saveErr) {
-                         console.warn(`Kayıt uyarısı (${monitoredTrademarkId}):`, saveErr);
-                     }
-                }));
-
-                await new Promise(r => setTimeout(r, DELAY_MS));
-                SimpleLoading.updateText('Sonuçlar Kaydediliyor...', `${Math.min(i + SAVE_BATCH_SIZE, entries.length)} / ${entries.length} marka grubu`);
-            }
-        }
     } catch (error) {
         console.error("Arama hatası:", error);
         infoMessageContainer.innerHTML = `<div class="info-message error"><strong>Hata:</strong> ${error.message}</div>`;
     } finally {
-        SimpleLoading.hide();
-        await groupAndSortResults();
+        if (typeof SimpleLoading !== 'undefined') SimpleLoading.hide();
         
         if (allSimilarResults.length > 0) {
             infoMessageContainer.innerHTML = `<div class="info-message success">Toplam ${allSimilarResults.length} benzer sonuç bulundu.</div>`;
-            startSearchBtn.disabled = true;
-            researchBtn.disabled = false;
-            btnGenerateReportAndNotifyGlobal.disabled = false;
+            if (startSearchBtn) startSearchBtn.disabled = true;
+            if (researchBtn) researchBtn.disabled = false;
+            if (btnGenerateReportAndNotifyGlobal) btnGenerateReportAndNotifyGlobal.disabled = false;
             if (noRecordsMessage) noRecordsMessage.style.display = 'none';
         } else {
             if (noRecordsMessage) {
                 noRecordsMessage.textContent = 'Arama sonucu bulunamadı.';
                 noRecordsMessage.style.display = 'block';
             }
-            startSearchBtn.disabled = false;
-            researchBtn.disabled = true;
-            btnGenerateReportAndNotifyGlobal.disabled = true;
+            if (startSearchBtn) startSearchBtn.disabled = false;
+            if (researchBtn) researchBtn.disabled = true;
+            if (btnGenerateReportAndNotifyGlobal) btnGenerateReportAndNotifyGlobal.disabled = true;
         }
-        
-        if (pagination) pagination.update(allSimilarResults.length);
-        renderCurrentPageOfResults();
     }
 };
 
 const performResearch = async () => {
     const bulletinKey = document.getElementById('bulletinSelect').value;
     if (!bulletinKey) return;
-    SimpleLoading.show('Hazırlanıyor...', 'Önbellek temizleniyor...');
-    await supabase.from('search_results_cache').delete().eq('bulletin_key', bulletinKey);
+    
+    if (typeof SimpleLoading !== 'undefined') {
+        SimpleLoading.show('Hazırlanıyor...', 'Eski arama sonuçları temizleniyor...');
+    }
+    
+    try {
+        const realBulletinId = `bulletin_main_${bulletinKey.split('_')[0]}`;
+        
+        // 1. Silinecek eski kayıtların ID'lerini bul
+        const { data } = await supabase
+            .from('monitoring_trademark_records')
+            .select('id, bulletin_record:trademark_bulletin_records!inner(bulletin_id)')
+            .eq('bulletin_record.bulletin_id', realBulletinId);
+            
+        // 2. ID'leri kullanarak tabloyu temizle
+        if (data && data.length > 0) {
+            const idsToDelete = data.map(d => d.id);
+            // Supabase "in()" limiti olabileceğinden 500'lük gruplar halinde siliyoruz
+            for (let i = 0; i < idsToDelete.length; i += 500) {
+                await supabase.from('monitoring_trademark_records').delete().in('id', idsToDelete.slice(i, i + 500));
+            }
+        }
+    } catch(e) {
+        console.error("Önbellek temizlenirken hata:", e);
+    }
+    
+    // Temizlik bitti, aramayı baştan tetikle
     await performSearch();
 };
 
@@ -1236,14 +1118,23 @@ const buildReportData = async (results) => {
         const ipApplicants = ipData?.ip_record_applicants || [];
 
         let hitHolders = r.holders || [];
-        let hitAppDate = r.applicationDate || "-"; 
+        
+        // 🔥 ÇÖZÜM: Yeni aramadan geliyorsa 'applicationDate', Cache'den geliyorsa 'application_date' olarak okunabilir.
+        let hitAppDateRaw = r.applicationDate || r.application_date || "-"; 
+        let hitAppDate = "-";
+        
         let hitAppNo = r.applicationNo || "-";
         let hitNice = r.niceClasses || [];
 
         // Bülten Markasının (Benzer) tarih formatını güzelleştir
-        if (hitAppDate !== "-") {
-            const hd = new Date(hitAppDate);
-            if (!isNaN(hd.getTime())) hitAppDate = `${String(hd.getDate()).padStart(2, '0')}.${String(hd.getMonth() + 1).padStart(2, '0')}.${hd.getFullYear()}`;
+        if (hitAppDateRaw && hitAppDateRaw !== "-") {
+            const hd = new Date(hitAppDateRaw);
+            if (!isNaN(hd.getTime())) {
+                hitAppDate = `${String(hd.getDate()).padStart(2, '0')}.${String(hd.getMonth() + 1).padStart(2, '0')}.${hd.getFullYear()}`;
+            } else {
+                // Eğer tarih parçalanamıyorsa (zaten düzgün string gelmişse) olduğu gibi kullan
+                hitAppDate = String(hitAppDateRaw);
+            }
         }
 
         // 🔥 YENİ DB: Sınıfları `ip_record_classes` tablosundan alıyoruz
