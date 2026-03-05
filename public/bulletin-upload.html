@@ -160,14 +160,36 @@
                     .eq('bulletin_id', bulletin.id);
                 
                 const recordCount = countError ? '-' : (count || 0);
+
+                // 🔥 YENİ: Bu bültene PDF'den eklenen kayıt var mı diye kontrol et
+                const { data: pdfCheck } = await supabase
+                    .from('trademark_bulletin_records')
+                    .select('id')
+                    .eq('bulletin_id', bulletin.id)
+                    .eq('source', 'pdf')
+                    .limit(1);
+
+                const hasPdf = pdfCheck && pdfCheck.length > 0;
+                
+                // Varsa şık bir yeşil rozet ekle
+                const pdfBadgeHtml = hasPdf 
+                    ? `<span style="background-color: #28a745; color: white; padding: 3px 8px; border-radius: 12px; font-size: 11px; margin-left: 8px; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.1);"><i class="fas fa-check-circle"></i> PDF Eklendi</span>` 
+                    : '';
                 
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
-                    <td><strong>${bulletin.bulletin_no || 'No Yok'}</strong></td>
+                    <td><strong>${bulletin.bulletin_no || 'No Yok'}</strong> ${pdfBadgeHtml}</td>
                     <td>${bulletin.bulletin_date || 'Tarih Yok'}</td>
                     <td>${uploadDate}</td>
                     <td>${recordCount} Marka</td>
-                    <td><button class="delete-btn" data-id="${bulletin.id}" data-no="${bulletin.bulletin_no}"><i class="fas fa-trash"></i> Hızlı Sil</button></td>
+                    <td style="display: flex; gap: 8px; align-items: center;">
+                        <button class="btn btn-sm btn-success" onclick="window.triggerPdfUpload('${bulletin.id}', '${bulletin.bulletin_no}')" title="Bu bültene PDF'den eksik kayıtları ekle">
+                            <i class="fas fa-file-pdf"></i> PDF Yükle
+                        </button>
+                        <button class="delete-btn" data-id="${bulletin.id}" data-no="${bulletin.bulletin_no}">
+                            <i class="fas fa-trash"></i> Hızlı Sil
+                        </button>
+                    </td>
                 `;
                 tableBody.appendChild(tr);
             }
