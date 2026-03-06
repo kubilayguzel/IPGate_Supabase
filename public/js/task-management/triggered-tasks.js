@@ -529,20 +529,39 @@ document.addEventListener('DOMContentLoaded', async () => {
             document.getElementById('cancelChangeTriggeredTaskStatusBtn')?.addEventListener('click', () => closeModal('changeTriggeredTaskStatusModal'));
             document.getElementById('saveChangeTriggeredTaskStatusBtn')?.addEventListener('click', () => this.handleUpdateStatus());
 
-            // 🔥 YENİ: Firebase Edge Functions yerine Supabase Functions Invoke kullanılıyor
-            document.getElementById('manualRenewalTriggerBtn')?.addEventListener('click', async () => {
-                showNotification('Kontrol ediliyor...', 'info');
+            // 🔥 GÜNCELLENDİ: Supabase Edge Functions 'check-renewal-tasks' çağrısı
+            document.getElementById('manualRenewalTriggerBtn')?.addEventListener('click', async (e) => {
+                const btn = e.currentTarget;
+                const originalHtml = btn.innerHTML;
+                
+                // Butonu kilitle ve yükleniyor animasyonu göster
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Kontrol Ediliyor...';
+                
+                showNotification('Yenileme süreleri kontrol ediliyor, lütfen bekleyin...', 'info');
+                
                 try {
-                    const { data, error } = await supabase.functions.invoke('checkAndCreateRenewalTasks');
+                    // YENİ SUPABASE EDGE FUNCTION ÇAĞRISI
+                    const { data, error } = await supabase.functions.invoke('check-renewal-tasks', {
+                        method: 'POST'
+                    });
+
                     if (error) throw error;
                     
                     if (data && data.success) {
-                        showNotification(`${data.count} görev oluşturuldu.`, 'success');
-                        this.loadAllData();
+                        showNotification(`Tarama tamamlandı! ${data.processed || 0} marka incelendi, ${data.count || 0} adet yeni görev oluşturuldu.`, 'success');
+                        this.loadAllData(); // Tabloyu yenile
                     } else {
                         showNotification(data?.error || 'Bilinmeyen Hata', 'error');
                     }
-                } catch(e) { showNotification(e.message, 'error'); }
+                } catch(err) { 
+                    console.error('Yenileme otomasyonu hatası:', err);
+                    showNotification('Kontrol sırasında bir hata oluştu: ' + err.message, 'error'); 
+                } finally {
+                    // İşlem bitince butonu eski haline getir
+                    btn.disabled = false;
+                    btn.innerHTML = originalHtml;
+                }
             });
         }
 
