@@ -417,7 +417,7 @@ export class TaskSubmitHandler {
             title: `Tahakkuk Oluşturma: ${taskTitle}`,
             description: `"${taskTitle}" işi oluşturuldu ancak tahakkuk girilmedi. Lütfen finansal kaydı oluşturun.`,
             priority: 'high',
-            status: 'open',
+            status: 'pending',
             assigned_to: assignedUid,
             ip_record_id: state.selectedIpRecord ? state.selectedIpRecord.id : null,
             task_owner_id: targetOwnerId, 
