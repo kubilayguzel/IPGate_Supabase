@@ -263,7 +263,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                 row.innerHTML = `
                     <td>${task.id}</td>
-                    <td>${task.applicationNumber}</td>
+                    <td>
+                        <a href="portfolio-detail.html?id=${task.ip_record_id || task.related_ip_record_id || task.relatedIpRecordId || ''}" target="_blank" class="text-primary font-weight-bold" style="text-decoration: underline;">
+                            ${task.applicationNumber}
+                        </a>
+                    </td>
                     <td>${task.relatedRecordTitle}</td>
                     <td>${task.applicantName}</td>
                     <td>${task.taskTypeDisplayName}</td>
@@ -529,36 +533,37 @@ document.addEventListener('DOMContentLoaded', async () => {
             document.getElementById('cancelChangeTriggeredTaskStatusBtn')?.addEventListener('click', () => closeModal('changeTriggeredTaskStatusModal'));
             document.getElementById('saveChangeTriggeredTaskStatusBtn')?.addEventListener('click', () => this.handleUpdateStatus());
 
-            // 🔥 GÜNCELLENDİ: Supabase Edge Functions 'check-renewal-tasks' çağrısı
             document.getElementById('manualRenewalTriggerBtn')?.addEventListener('click', async (e) => {
                 const btn = e.currentTarget;
                 const originalHtml = btn.innerHTML;
                 
-                // Butonu kilitle ve yükleniyor animasyonu göster
                 btn.disabled = true;
                 btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Kontrol Ediliyor...';
                 
                 showNotification('Yenileme süreleri kontrol ediliyor, lütfen bekleyin...', 'info');
                 
                 try {
-                    // YENİ SUPABASE EDGE FUNCTION ÇAĞRISI
-                    const { data, error } = await supabase.functions.invoke('check-renewal-tasks', {
-                        method: 'POST'
-                    });
-
+                    const { data, error } = await supabase.functions.invoke('check-renewal-tasks', { method: 'POST' });
                     if (error) throw error;
                     
                     if (data && data.success) {
-                        showNotification(`Tarama tamamlandı! ${data.processed || 0} marka incelendi, ${data.count || 0} adet yeni görev oluşturuldu.`, 'success');
-                        this.loadAllData(); // Tabloyu yenile
+                        let msg = `Tarama tamamlandı! ${data.processed || 0} marka incelendi, ${data.count || 0} adet yeni görev oluşturuldu.`;
+                        
+                        // Sade ve anlaşılır atlandı uyarısı
+                        if (data.skipped && data.skipped.length > 0) {
+                            msg += `<br><b>Not: ${data.skipped.length} adet marka, zaten açık bir görevi olduğu için atlandı.</b>`;
+                            console.warn("📌 Mükerrer olduğu için atlanan kayıtların detaylı listesi:", data.skipped);
+                        }
+
+                        showNotification(msg, 'success', 6000); 
+                        this.loadAllData();
                     } else {
                         showNotification(data?.error || 'Bilinmeyen Hata', 'error');
                     }
                 } catch(err) { 
                     console.error('Yenileme otomasyonu hatası:', err);
-                    showNotification('Kontrol sırasında bir hata oluştu: ' + err.message, 'error'); 
+                    showNotification('Kontrol sırasında bir hata: ' + err.message, 'error'); 
                 } finally {
-                    // İşlem bitince butonu eski haline getir
                     btn.disabled = false;
                     btn.innerHTML = originalHtml;
                 }
