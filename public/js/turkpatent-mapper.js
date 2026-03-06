@@ -3,12 +3,14 @@
 import { supabase } from './supabase-config.js';
 
 function normalizeText(v) { return (v || '').toString().replace(/\s+/g, ' ').trim().toLowerCase(); }
+
 function parseDDMMYYYYToISO(s) {
   if (!s) return null;
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
   const m = (s || '').match(/(\d{1,2})\.(\d{1,2})\.(\d{4})/);
   return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : null;
 }
+
 function formatDate(dateStr) { return parseDDMMYYYYToISO(dateStr); }
 function uniq(arr) { return Array.from(new Set(arr)); }
 
@@ -27,14 +29,18 @@ async function uploadBrandImage(applicationNumber, brandImageDataUrl, imageSrc) 
     if (!response.ok) return null;
     const blob = await response.blob();
     const ext = (blob.type && blob.type.split('/')[1]) || 'jpg';
-    const fileName = `${applicationNumber}_${Date.now()}.${ext}`;
+    
+    // Klasör yapısı düzenlendi
+    const fileName = `turkpatent_scraped/${applicationNumber}_${Date.now()}.${ext}`;
 
-    const { data, error } = await supabase.storage.from('brand_images').upload(`brand-examples/${fileName}`, blob, {
+    const { data, error } = await supabase.storage.from('brand_images').upload(fileName, blob, {
       contentType: blob.type || 'image/jpeg',
       cacheControl: '31536000'
     });
 
     if (error || !data) return null;
+    
+    // Public URL döndür
     const { data: publicUrlData } = supabase.storage.from('brand_images').getPublicUrl(data.path);
     return publicUrlData.publicUrl;
   } catch (error) {
@@ -75,27 +81,29 @@ function createGoodsAndServicesByClass(inputGSC, niceClassesStr, details) {
   if (Array.isArray(inputGSC) && inputGSC.length > 0) {
     const groupedByClass = new Map();
     inputGSC.forEach(entry => {
-      const classNo = Number(entry.classNo);
+      const class_no = Number(entry.classNo);
       let items = Array.isArray(entry.items) ? entry.items : [entry.items];
-      if (!groupedByClass.has(classNo)) groupedByClass.set(classNo, []);
-      groupedByClass.get(classNo).push(...items.flatMap(item => typeof item === 'string' ? item.split(/[\n.]/).map(s => s.trim()).filter(Boolean) : []));
+      if (!groupedByClass.has(class_no)) groupedByClass.set(class_no, []);
+      groupedByClass.get(class_no).push(...items.flatMap(item => typeof item === 'string' ? item.split(/[\n.]/).map(s => s.trim()).filter(Boolean) : []));
     });
-    return Array.from(groupedByClass.entries()).map(([classNo, items]) => ({ classNo, items: [...new Set(items)] })).sort((a, b) => a.classNo - b.classNo);
+    // JSON'a uyum için classNo -> class_no olarak düzeltildi
+    return Array.from(groupedByClass.entries()).map(([class_no, items]) => ({ class_no: parseInt(class_no), items: [...new Set(items)] })).sort((a, b) => a.class_no - b.class_no);
   }
 
   const niceNums = parseNiceClasses(niceClassesStr) || parseNiceClasses(details?.['Nice Sınıfları']);
   if (!Array.isArray(niceNums) || niceNums.length === 0) return [];
-  return niceNums.map(classNo => ({ classNo, items: [] }));
+  return niceNums.map(class_no => ({ class_no: parseInt(class_no), items: [] }));
 }
 
 function createOldTransactions(transactions) {
   if (!Array.isArray(transactions) || transactions.length === 0) return [];
+  // DB'de JSONB olarak tutulacağı için key'leri snake_case yapıyoruz
   return transactions.map(tx => ({
-    date: formatDate(tx?.date),
+    transaction_date: formatDate(tx?.date),
     description: tx?.description || tx?.action || null,
     note: tx?.note || null,
     source: 'turkpatent_scrape',
-    createdAt: new Date().toISOString()
+    created_at: new Date().toISOString()
   }));
 }
 
@@ -130,28 +138,33 @@ export async function mapTurkpatentToIPRecord(turkpatentData, selectedApplicants
   if (!finalStatus) finalStatus = 'filed';
 
   return {
-    title: brandName || 'Başlıksız Marka',
-    type: 'trademark',
-    portfolio_status: 'active',
+    // --- 1. ip_records Tablosu ---
+    ip_type: 'trademark',
     origin: 'TÜRKPATENT',
+    country_code: 'TR',
+    portfolio_status: 'active',
     status: finalStatus,
-    recordOwnerType: 'self',
+    record_owner_type: 'self',
     application_number: applicationNumber || null,
     application_date: formatDate(applicationDate),
     registration_number: registrationNumber || details?.['Tescil Numarası'] || null,
     registration_date: registrationDate,
     renewal_date: calculatedRenewalDate,
-    brand_name: brandName || '',
+    created_from: 'turkpatent_scraper',
+    old_transactions: createOldTransactions(transactions), // JSONB olarak saklanacak
+    
+    // --- 2. ip_record_trademark_details Tablosu ---
+    brand_name: brandName || 'Başlıksız Marka',
+    brand_type: details?.['Marka Türü'] || 'Şekil + Kelime',
+    brand_category: details?.['Marka Kategorisi'] || 'Ticaret/Hizmet Markası',
     brand_image_url: brandImageUrl,
-    details: {
-        description: details?.['Açıklama'] || null,
-        brandType: details?.['Marka Türü'] || 'Şekil + Kelime',
-        brandCategory: details?.['Marka Kategorisi'] || 'Ticaret/Hizmet Markası',
-        bulletins: createBulletins(details, transactions),
-        goodsAndServicesByClass: createGoodsAndServicesByClass(goodsAndServicesByClass, niceClasses, details),
-        applicants: Array.isArray(selectedApplicants) ? selectedApplicants.map(a => ({ id: a.id, email: a.email || null })) : [],
-        oldTransactions: createOldTransactions(transactions)
-    }
+    description: details?.['Açıklama'] || null,
+
+    // --- 3. İlişkisel Diziler (tp-file-transfer.js bunları ilgili tablolara bölecek) ---
+    classes: createGoodsAndServicesByClass(goodsAndServicesByClass, niceClasses, details), // ip_record_classes
+    bulletins: createBulletins(details, transactions), // ip_record_bulletins
+    // applicant id'lerini person_id ile eşliyoruz
+    applicants: Array.isArray(selectedApplicants) ? selectedApplicants.map(a => ({ person_id: a.id, email: a.email || null })) : [] // ip_record_applicants
   };
 }
 
@@ -161,7 +174,7 @@ export async function mapTurkpatentResultsToIPRecords(turkpatentResults, selecte
   for (let i = 0; i < turkpatentResults.length; i++) {
     try {
       const rec = await mapTurkpatentToIPRecord(turkpatentResults[i], selectedApplicants);
-      rec.id = `turkpatent_${Date.now()}_${i}`;
+      rec.id = `turkpatent_${Date.now()}_${i}`; // Geçici ID (UI'da göstermek için), DB'ye kaydederken UUID üretilecek
       out.push(rec);
     } catch (e) { console.error(`Kayıt ${i} mapping hatası:`, e); }
   }
