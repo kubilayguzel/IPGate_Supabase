@@ -6,7 +6,6 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-// --- TATİL VE TARİH YARDIMCILARI ---
 const TURKEY_HOLIDAYS = [
     "2025-01-01", "2025-03-30", "2025-03-31", "2025-04-01", "2025-04-23", "2025-05-01", "2025-05-19", "2025-06-06", "2025-06-07", "2025-06-08", "2025-06-09", "2025-07-15", "2025-08-30", "2025-10-29",
     "2026-01-01", "2026-03-19", "2026-03-20", "2026-03-21", "2026-03-22", "2026-04-23", "2026-05-01", "2026-05-27", "2026-05-28", "2026-05-29", "2026-05-30", "2026-07-15", "2026-08-30", "2026-10-29"
@@ -59,7 +58,6 @@ serve(async (req) => {
 
     console.log('🔄 [Yenileme Otomasyonu] Manuel tetikleme başlatıldı.');
 
-    // 1. GÖREVLİ KİŞİYİ (ASSIGNEE) BULMA
     let assignedTo_uid = null;
     let assignedTo_email = "sistem@evrekapatent.com";
     let assignedTo_name = "Sistem Otomasyonu";
@@ -75,15 +73,30 @@ serve(async (req) => {
         }
     }
 
-    // 2. HALİHAZIRDA AÇIK OLAN YENİLEME GÖREVLERİNİ ÇEK
-    const { data: existingTasks } = await supabaseAdmin.from('tasks')
-        .select('related_ip_record_id')
+    // AÇIK İŞLERİ ÇEK
+    const { data: openTasks } = await supabaseAdmin.from('tasks')
+        .select('ip_record_id')
         .eq('task_type_id', '22')
-        .in('status', ['awaiting_client_approval', 'open', 'in-progress', 'evaluation_pending']);
-    
-    const activeTaskRecordIds = new Set((existingTasks || []).map(t => t.related_ip_record_id));
+        .neq('status', 'completed');
 
-    // 3. UYGUN IP KAYITLARINI ÇEK (company_name SİLİNDİ, sadece name ÇEKİLİYOR)
+    const openRecordIds = (openTasks || []).map(t => t.ip_record_id).filter(Boolean);
+    const activeAppOriginKeys = new Set();
+    const activeRecordIds = new Set(openRecordIds);
+
+    if (openRecordIds.length > 0) {
+        const { data: activeIpData } = await supabaseAdmin.from('ip_records')
+            .select('application_number, origin')
+            .in('id', openRecordIds);
+        
+        for (const rec of (activeIpData || [])) {
+            if (rec.application_number && rec.origin) {
+                const key = `${String(rec.application_number).trim()}_${String(rec.origin).trim()}`;
+                activeAppOriginKeys.add(key);
+            }
+        }
+    }
+
+    // TÜM MARKALARI ÇEK
     const { data: ipRecords, error: ipError } = await supabaseAdmin.from('ip_records')
         .select(`
             id, 
@@ -101,44 +114,50 @@ serve(async (req) => {
 
     if (ipError) throw new Error("Markalar çekilemedi: " + ipError.message);
 
-    // 4. TARİH HESAPLAMALARI VE FİLTRELEME
+    // 🔥 SAYAÇ (COUNTER) OKUMA 🔥
+    const { data: counterData } = await supabaseAdmin.from('counters').select('last_id').eq('id', 'tasks').maybeSingle();
+    let currentLastId = counterData ? Number(counterData.last_id || 0) : 0;
+
     const today = new Date();
     const sixMonthsAgo = new Date(today); sixMonthsAgo.setMonth(today.getMonth() - 6);
     const sixMonthsLater = new Date(today); sixMonthsLater.setMonth(today.getMonth() + 6);
 
     const tasksToInsert: any[] = [];
     const transactionsToInsert: any[] = [];
+    const skippedRecords: any[] = [];
 
     for (const record of (ipRecords || [])) {
+        let title = "-";
+        if (record.ip_record_trademark_details && record.ip_record_trademark_details.length > 0) {
+            title = record.ip_record_trademark_details[0].brand_name || "-";
+        }
+
         if ((record.wipo_ir || record.origin === 'WIPO' || record.origin === 'ARIPO') && record.transaction_hierarchy !== 'parent') {
             continue;
         }
 
-        if (activeTaskRecordIds.has(record.id)) {
+        const appNo = String(record.application_number || "").trim();
+        const origin = String(record.origin || "").trim();
+        const appOriginKey = `${appNo}_${origin}`;
+
+        if (activeRecordIds.has(record.id) || (appNo && origin && activeAppOriginKeys.has(appOriginKey))) {
+            skippedRecords.push({ appNo: record.application_number, title: title, origin: origin });
             continue;
         }
 
         let renewalDate = record.renewal_date ? new Date(record.renewal_date) : null;
-        
         if (!renewalDate && record.application_date) {
             renewalDate = new Date(record.application_date);
             renewalDate.setFullYear(renewalDate.getFullYear() + 10);
         }
 
         if (!renewalDate || isNaN(renewalDate.getTime())) continue;
-
         if (renewalDate < sixMonthsAgo || renewalDate > sixMonthsLater) continue;
-
-        let title = "-";
-        if (record.ip_record_trademark_details && record.ip_record_trademark_details.length > 0) {
-            title = record.ip_record_trademark_details[0].brand_name || "-";
-        }
 
         let appName = "-";
         let applicantIds: string[] = [];
         if (record.ip_record_applicants && record.ip_record_applicants.length > 0) {
             const p = record.ip_record_applicants[0].persons;
-            // company_name silindi, sadece p?.name kullanılıyor
             appName = p?.name || "-";
             applicantIds = record.ip_record_applicants.map((a: any) => a.person_id).filter(Boolean);
         }
@@ -148,7 +167,11 @@ serve(async (req) => {
         operationalDate.setDate(operationalDate.getDate() - 3);
         operationalDate = findPreviousWorkingDay(operationalDate);
 
-        const taskId = crypto.randomUUID();
+        // 🔥 YENİ: SAYAÇTAN SIRALI GÖREV ID'Sİ ÜRETME 🔥
+        currentLastId++;
+        const taskId = String(currentLastId);
+        
+        const txId = crypto.randomUUID(); // Transaction id'si standart uuid kalsın
         const nowIso = new Date().toISOString();
 
         tasksToInsert.push({
@@ -158,7 +181,7 @@ serve(async (req) => {
             priority: "medium",
             title: `${title} Marka Yenileme`,
             description: `${title} adlı markanın yenileme süreci için müvekkil onayı bekleniyor. Yenileme tarihi: ${renewalDate.toLocaleDateString('tr-TR')}.`,
-            related_ip_record_id: record.id,
+            ip_record_id: record.id,
             details: {
                 iprecordApplicationNo: record.application_number || "-",
                 iprecordTitle: title,
@@ -173,6 +196,7 @@ serve(async (req) => {
         });
 
         transactionsToInsert.push({
+            id: txId,
             ip_record_id: record.id,
             transaction_type_id: "22",
             transaction_hierarchy: "parent",
@@ -184,25 +208,31 @@ serve(async (req) => {
             task_id: taskId,
             created_at: nowIso
         });
+        
+        if (appNo && origin) activeAppOriginKeys.add(appOriginKey);
     }
 
     if (tasksToInsert.length === 0) {
-        console.log(`ℹ️ [Yenileme Otomasyonu] Taranan kayıt: ${ipRecords?.length}. Yeni oluşturulacak görev yok.`);
-        return new Response(JSON.stringify({ success: true, count: 0, processed: ipRecords?.length }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+        return new Response(JSON.stringify({ 
+            success: true, count: 0, processed: ipRecords?.length, skipped: skippedRecords 
+        }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
     }
 
+    // GÖREVLERİ KAYDET VE SAYACI GÜNCELLE
     const { error: taskError } = await supabaseAdmin.from('tasks').insert(tasksToInsert);
     if (taskError) throw new Error("Görevler kaydedilemedi: " + taskError.message);
+
+    // Sayacı Yeni Değerle Güncelle
+    await supabaseAdmin.from('counters').upsert({ id: 'tasks', last_id: currentLastId });
 
     const { error: txError } = await supabaseAdmin.from('transactions').insert(transactionsToInsert);
     if (txError) throw new Error("İşlemler (Transactions) kaydedilemedi: " + txError.message);
 
-    console.log(`✅ [Yenileme Otomasyonu] Başarılı! ${tasksToInsert.length} adet yenileme görevi oluşturuldu.`);
-
     return new Response(JSON.stringify({
         success: true,
         count: tasksToInsert.length,
-        processed: ipRecords?.length
+        processed: ipRecords?.length,
+        skipped: skippedRecords
     }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
 
   } catch (error: any) {
