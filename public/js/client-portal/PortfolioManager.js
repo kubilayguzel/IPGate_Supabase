@@ -2,47 +2,64 @@
 import { supabase } from '../../supabase-config.js';
 
 export class PortfolioManager {
-    // 1. Portföyü (Marka, Patent, Tasarım) Çek
+    // 1. Portföyü (Marka, Patent, Tasarım) Çek (VIEW KULLANARAK)
     async getPortfolios(clientIds) {
         if (!clientIds || clientIds.length === 0) return [];
 
         try {
-            // !inner komutu, sadece bu applicant_id'ye sahip kayıtları getirmesini sağlar
+            // Adım 1: Bu müşterilere ait markaların ID'lerini bul
+            const { data: appData, error: appError } = await supabase
+                .from('ip_record_applicants')
+                .select('ip_record_id')
+                .in('person_id', clientIds);
+
+            if (appError) throw appError;
+
+            const ipIds = [...new Set(appData.map(a => a.ip_record_id))];
+            if (ipIds.length === 0) return [];
+
+            // Adım 2: Bulunan ID'leri VIEW üzerinden detaylı çek
             const { data, error } = await supabase
-                .from('ip_records')
-                .select(`
-                    *,
-                    ip_record_trademark_details (brand_name, brand_image_url),
-                    ip_record_classes (class_no),
-                    ip_record_applicants!inner (person_id)
-                `)
-                .in('ip_record_applicants.person_id', clientIds)
+                .from('portfolio_list_view')
+                .select('*')
+                .in('id', ipIds)
                 .order('created_at', { ascending: false });
 
             if (error) throw error;
 
-            // Arayüzün (UI) beklediği CamelCase formata çeviriyoruz
-            return data.map(item => {
-                const tmDetails = item.ip_record_trademark_details?.[0] || {};
-                const classes = item.ip_record_classes ? item.ip_record_classes.map(c => c.class_no).join(', ') : '-';
+            // Adım 3: Arayüzün beklediği CamelCase formata çevir
+            return data.map(record => {
+                // Görsel Fallback
+                let imageUrl = record.brand_image_url;
+                if (!imageUrl || imageUrl.trim() === '') {
+                    imageUrl = `https://guicrctynauzxhyfpdfe.supabase.co/storage/v1/object/public/brand_images/${record.id}/logo.png`;
+                }
+
+                // Sınıfları metne çevir
+                const classesArray = Array.isArray(record.nice_classes) ? record.nice_classes.filter(n => n != null) : [];
                 
+                // Başvuru sahiplerini JSON'dan çıkar
+                let applicantsArray = [];
+                try {
+                    applicantsArray = Array.isArray(record.applicants_json) ? record.applicants_json : JSON.parse(record.applicants_json || '[]');
+                } catch(e) {}
+
                 return {
-                    id: item.id,
-                    type: item.ip_type,
-                    origin: item.origin || 'TÜRKPATENT',
-                    country: item.country_code,
-                    title: tmDetails.brand_name || '-',
-                    brandImageUrl: tmDetails.brand_image_url || '',
-                    applicationNumber: item.application_number || '-',
-                    registrationNumber: item.registration_number || item.wipo_ir || item.aripo_ir || '-',
-                    applicationDate: item.application_date,
-                    renewalDate: item.renewal_date,
-                    status: item.status,
-                    classes: classes,
-                    transactionHierarchy: item.transaction_hierarchy,
-                    parentId: item.parent_id,
-                    // HTML tarafındaki arama/filtreleme mantığı için
-                    applicants: item.ip_record_applicants.map(app => ({ id: app.person_id }))
+                    id: record.id,
+                    type: record.ip_type,
+                    origin: record.origin || 'TÜRKPATENT',
+                    country: record.country_code,
+                    title: record.brand_name || '-',
+                    brandImageUrl: imageUrl,
+                    applicationNumber: record.application_number || '-',
+                    registrationNumber: record.registration_number || record.wipo_ir || record.aripo_ir || '-',
+                    applicationDate: record.application_date,
+                    renewalDate: record.renewal_date,
+                    status: record.status,
+                    classes: classesArray.join(', ') || '-',
+                    transactionHierarchy: record.transaction_hierarchy,
+                    parentId: record.parent_id,
+                    applicants: applicantsArray
                 };
             });
         } catch (error) {
@@ -69,7 +86,7 @@ export class PortfolioManager {
                 caseNo: suit.file_no || '-',
                 title: suit.title || 'Dava',
                 court: suit.court_name || '-',
-                opposingParty: suit.defendant || suit.plaintiff || '-',
+                opposingParty: suit.defendant || suit.opposing_party || '-',
                 openingDate: suit.created_at,
                 suitStatus: suit.status || 'Devam Ediyor',
                 client: { id: suit.client_id }
