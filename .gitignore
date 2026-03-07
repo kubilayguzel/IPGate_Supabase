@@ -13,3 +13,5 @@ supabase_sample.json
 # Sadece ana dizindeki js ve json dosyalarını yoksay (Klasör içindekileri engelleme!)
 /*.js
 /*.json
+.firebase/hosting.cHVibGlj.cache
+/.firebase
