@@ -628,60 +628,28 @@ class ClientPortalController {
 
             // Kategori (Onay Bekleyen vs)
             const isDava = String(t.taskType) === '49' || (t.title || '').toLowerCase().includes('dava');
+            
             if (taskTypeFilter === 'pending-approval') {
-                return !isDava && t.status === 'awaiting_client_approval';
+                return !isDava && t.status === 'awaiting_client_approval' && String(t.taskType) !== '20' && String(t.taskType) !== '22';
             } else if (taskTypeFilter === 'completed-tasks') {
                 return !isDava && t.status !== 'awaiting_client_approval';
+            } else if (taskTypeFilter === 'bulletin-watch') {
+                return String(t.taskType) === '20';
+            } else if (taskTypeFilter === 'renewal-approval') {
+                return String(t.taskType) === '22';
+            } else if (taskTypeFilter === 'dava-pending') {
+                return isDava && t.status === 'awaiting_client_approval';
+            } else if (taskTypeFilter === 'dava-completed') {
+                return isDava && t.status !== 'awaiting_client_approval';
             }
-            // Dava sekmeleri vb. eklenebilir...
-            
             return true;
         });
 
         this.state.filteredTasks = filtered;
 
-        const container = document.getElementById('task-list-container');
-        if (filtered.length === 0) {
-            container.innerHTML = '<div class="text-center text-muted p-4">Aranan kriterlere uygun iş bulunamadı.</div>';
-            return;
-        }
-
-        // Basit Render
-        let html = '<div class="row">';
-        filtered.slice(0, 20).forEach((t, i) => { // Performans için max 20 çiz
-            let badgeClass = t.status === 'awaiting_client_approval' ? 'warning' : 'success';
-            let statusText = t.status === 'awaiting_client_approval' ? 'Onay Bekliyor' : 'Tamamlandı';
-
-            let buttons = `<button class="btn btn-info btn-sm task-detail-btn" data-id="${t.id}"><i class="fas fa-eye"></i> İncele</button>`;
-            if (t.status === 'awaiting_client_approval') {
-                buttons = `
-                    <button class="btn btn-success btn-sm task-action-btn mr-1" data-action="approve" data-id="${t.id}"><i class="fas fa-check"></i> Onayla</button>
-                    <button class="btn btn-danger btn-sm task-action-btn mr-1" data-action="reject" data-id="${t.id}"><i class="fas fa-times"></i> Reddet</button>
-                    ${buttons}
-                `;
-            }
-
-            html += `
-            <div class="col-12 mb-3">
-                <div class="task-card border-left-${badgeClass} shadow-sm bg-white p-3 rounded" style="border-left-width: 5px;">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <div>
-                            <h6 class="font-weight-bold mb-1 text-primary">#${t.id} - ${t.taskTypeDisplay}</h6>
-                            <div class="small text-muted"><i class="fas fa-cube mr-1"></i>${t.recordTitle} (${t.appNo})</div>
-                            <span class="badge badge-${badgeClass} mt-2">${statusText}</span>
-                        </div>
-                        <div class="text-right">
-                            <div class="small text-muted mb-2"><i class="far fa-clock"></i> Son Tarih: <b>${this.formatDate(t.dueDate)}</b></div>
-                            ${buttons}
-                        </div>
-                    </div>
-                </div>
-            </div>`;
-        });
-        html += '</div>';
-        container.innerHTML = html;
+        // Render İşlemini RenderHelper'a Devret!
+        this.renderHelper.renderTaskSection(filtered, 'task-list-container', taskTypeFilter);
     }
-
 
     // ==========================================
     // 4. OLAY DİNLEYİCİLERİ (EVENT LISTENERS)
@@ -757,6 +725,7 @@ class ClientPortalController {
         });
 
         // Portföy Detay Modal Açma
+        // Portföy Detay Modal Açma
         $(document).on('click', '.portfolio-detail-link', async (e) => {
             e.preventDefault();
             const itemId = e.currentTarget.dataset.itemId;
@@ -768,22 +737,68 @@ class ClientPortalController {
             document.getElementById('modal-details-card').innerHTML = `<p><strong>Tür:</strong> ${item.type}</p><p><strong>Başvuru No:</strong> ${item.applicationNumber}</p><p><strong>Sınıflar:</strong> ${item.classes}</p>`;
             document.getElementById('modal-dates-card').innerHTML = `<p><strong>Başvuru:</strong> ${this.formatDate(item.applicationDate)}</p><p><strong>Yenileme:</strong> ${this.formatDate(item.renewalDate)}</p><span class="badge badge-primary">${item.status}</span>`;
             
-            // İşlemleri Çek
-            document.querySelector('#modal-islemler tbody').innerHTML = '<tr><td colspan="4">Yükleniyor...</td></tr>';
-            $('#portfolioDetailModal').modal('show');
-            
-            const { data: txs } = await supabase.from('transactions').select('*, transaction_types(alias)').eq('ip_record_id', item.id).order('created_at', { ascending: false });
-            
-            let txHtml = '';
-            if (txs && txs.length > 0) {
-                txs.forEach((tx, i) => {
-                    const txName = tx.transaction_types?.alias || tx.description || 'İşlem';
-                    txHtml += `<tr><td>${i+1}</td><td>${txName}</td><td>${this.formatDate(tx.created_at)}</td><td>-</td></tr>`;
-                });
-            } else {
-                txHtml = '<tr><td colspan="4">İşlem bulunamadı.</td></tr>';
+            // Eşya Listesi Render
+            let esyaHtml = '<p class="text-muted">Veri yok.</p>';
+            if (item.classes && item.classes !== '-') {
+                // Şimdilik sadece sınıfları gösteriyoruz, detaylı eşya listesi DB'den (ip_record_classes) çekilip eklenebilir
+                esyaHtml = `<div><b>Kayıtlı Sınıflar</b>: ${item.classes}</div>`;
             }
-            document.querySelector('#modal-islemler tbody').innerHTML = txHtml;
+            document.getElementById('esyaListesiContent').innerHTML = esyaHtml;
+            
+            // İşlemleri Çek ve YENİ AKILLI RENDER'I KULLAN!
+            document.querySelector('#modal-islemler tbody').innerHTML = '<tr><td colspan="4" class="text-center"><i class="fas fa-spinner fa-spin"></i> Yükleniyor...</td></tr>';
+            $('#portfolioDetailModal').modal('show');
+            $('#myTab a[href="#modal-islemler"]').tab('show'); 
+            
+            try {
+                // İşlemleri evraklarıyla beraber çek
+                const { data: txs } = await supabase
+                    .from('transactions')
+                    .select('*, transaction_types(alias, name), transaction_documents(*)')
+                    .eq('ip_record_id', item.id)
+                    .order('created_at', { ascending: false });
+                
+                // RenderHelper'a gönder
+                this.renderHelper.renderTransactionHistory(txs || [], 'modal-islemler');
+            } catch (err) {
+                console.error(err);
+                document.querySelector('#modal-islemler tbody').innerHTML = '<tr><td colspan="4" class="text-center text-danger">İşlemler yüklenemedi.</td></tr>';
+            }
+        });
+
+        // Mal/Hizmet Kıyaslama Modalını Açma
+        $(document).on('click', '.task-compare-goods', async (e) => {
+            const btn = e.currentTarget;
+            const ipRecordId = btn.dataset.ipRecordId;
+            const targetAppNo = btn.dataset.targetAppNo;
+
+            document.getElementById('monitoredGoodsContent').innerHTML = '<p class="text-muted"><i class="fas fa-spinner fa-spin"></i> Yükleniyor...</p>';
+            document.getElementById('competitorGoodsContent').innerHTML = '<p class="text-muted"><i class="fas fa-spinner fa-spin"></i> Yükleniyor...</p>';
+            $('#goodsComparisonModal').modal('show');
+
+            try {
+                // Kendi markamızın sınıflarını çek
+                const { data: myRecord } = await supabase.from('ip_record_classes').select('class_no, items').eq('ip_record_id', ipRecordId);
+                let myHtml = '<p class="text-muted">Sınıf verisi bulunamadı.</p>';
+                if (myRecord && myRecord.length > 0) {
+                    myHtml = myRecord.map(c => `<div><h6 class="text-primary font-weight-bold">Sınıf ${c.class_no}</h6><p style="font-size:0.85rem">${Array.isArray(c.items) ? c.items.join('; ') : c.items}</p></div>`).join('<hr>');
+                }
+                document.getElementById('monitoredGoodsContent').innerHTML = myHtml;
+
+                // Karşı tarafın eşyalarını bülten kayıtlarından çek
+                const cleanAppNo = String(targetAppNo).replace(/[^a-zA-Z0-9]/g, '');
+                const { data: compRecord } = await supabase.from('trademark_bulletin_records').select('goods').like('application_number', `%${cleanAppNo}%`).limit(1).maybeSingle();
+                
+                let compHtml = '<p class="text-muted">Bülten kaydı eşya listesi bulunamadı.</p>';
+                if (compRecord && compRecord.goods) {
+                    compHtml = (Array.isArray(compRecord.goods) ? compRecord.goods : [compRecord.goods]).map(g => `<p style="font-size:0.85rem; margin-bottom:10px;">${g}</p>`).join('');
+                }
+                document.getElementById('competitorGoodsContent').innerHTML = compHtml;
+
+            } catch(err) {
+                console.error(err);
+                document.getElementById('monitoredGoodsContent').innerHTML = '<p class="text-danger">Veriler yüklenirken hata oluştu.</p>';
+            }
         });
     }
 
@@ -791,33 +806,146 @@ class ClientPortalController {
     // 5. RAPORLAR VE GRAFİKLER
     // ==========================================
     renderReports() {
-        // Eski koddaki initReports içeriğinin modernleştirilmiş hali
         const portfolios = this.state.portfolios;
+        const legalData = [...this.state.suits, ...this.state.filteredObjections || []];
+        const taskData = this.state.tasks;
+
+        if (portfolios.length === 0 && legalData.length === 0) {
+            document.getElementById('world-map-markers').innerHTML = '<div class="d-flex justify-content-center align-items-center h-100 text-muted">Bu müşteri için analiz edilecek veri bulunamadı.</div>';
+            return;
+        }
+
+        let mapData = {};                 
+        let uniqueCountries = new Set();  
+        let typeCounts = {};              
+        let classCounts = {};             
+        let budgetForecast = {};          
+        const monthNames = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
         
-        document.getElementById('rep-total-assets').textContent = portfolios.length;
-        
-        let typeCounts = { 'Marka': 0, 'Patent': 0, 'Tasarım': 0 };
-        portfolios.forEach(p => {
-            if (p.type.includes('patent')) typeCounts['Patent']++;
-            else if (p.type.includes('design')) typeCounts['Tasarım']++;
-            else typeCounts['Marka']++;
+        const now = new Date();
+        const sixMonthsAgo = new Date(); sixMonthsAgo.setMonth(now.getMonth() - 6);
+        const nextYear = new Date(); nextYear.setFullYear(now.getFullYear() + 1);
+
+        portfolios.forEach(item => {
+            // A) Harita Verisi
+            let code = '';
+            const originRaw = (item.origin || '').toUpperCase();
+            if (originRaw.includes('TURK')) code = 'TR';
+            else if (item.country) code = item.country.toUpperCase().trim();
+            
+            if (code && code.length === 2) {
+                mapData[code] = (mapData[code] || 0) + 1;
+                uniqueCountries.add(code);
+            }
+
+            // B) Varlık Türü
+            const t = item.type === 'trademark' ? 'Marka' : (item.type === 'patent' ? 'Patent' : (item.type === 'design' ? 'Tasarım' : item.type));
+            typeCounts[t] = (typeCounts[t] || 0) + 1;
+
+            // C) Sınıflar
+            if (item.classes && item.classes !== '-') {
+                item.classes.split(',').forEach(c => {
+                    const cleanC = c.trim();
+                    if (cleanC) classCounts[cleanC] = (classCounts[cleanC] || 0) + 1;
+                });
+            }
+
+            // D) Bütçe Projeksiyonu
+            if (item.renewalDate) {
+                let rDate = new Date(item.renewalDate);
+                if (rDate > now && rDate < nextYear) {
+                    const key = `${rDate.getFullYear()}-${rDate.getMonth()}`; 
+                    const cost = originRaw.includes('TURK') ? 4500 : 15000; 
+                    budgetForecast[key] = (budgetForecast[key] || 0) + cost;
+                }
+            }
         });
 
-        // Basit Donut Chart
-        if (window.ApexCharts) {
-            const el = document.querySelector("#chart-portfolio-dist");
-            el.innerHTML = "";
-            new ApexCharts(el, {
-                series: Object.values(typeCounts),
-                labels: Object.keys(typeCounts),
-                chart: { type: 'donut', height: 260 },
-                colors: ['#4e73df', '#1cc88a', '#36b9cc'],
-                legend: { position: 'bottom' }
-            }).render();
+        // HARİTA ÇİZİMİ
+        const mapContainer = document.getElementById("world-map-markers");
+        mapContainer.innerHTML = ""; 
+        if (Object.keys(mapData).length > 0 && window.jsVectorMap) {
+            new jsVectorMap({
+                selector: '#world-map-markers',
+                map: 'world',
+                zoomButtons: true,
+                regionStyle: {
+                    initial: { fill: '#e3eaef', stroke: 'none', "stroke-width": 0 },
+                    hover: { fillOpacity: 0.7, cursor: 'pointer' }
+                },
+                visualizeData: { scale: ['#a2cffe', '#2e59d9'], values: mapData },
+                onRegionTooltipShow(event, tooltip, code) {
+                    const count = mapData[code] || 0;
+                    if (count > 0) tooltip.text(`<strong>${tooltip.text()}</strong>: ${count} Dosya`, true);
+                }
+            });
         }
+
+        // KPI'LAR
+        document.getElementById('rep-total-assets').textContent = portfolios.length;
+        document.getElementById('rep-total-countries').textContent = uniqueCountries.size + ' Ülke';
+        document.getElementById('rep-pending-tasks').textContent = taskData.filter(t => t.status === 'awaiting_client_approval').length;
+        
+        const activeLegal = legalData.filter(l => !(l.statusText || l.suitStatus || '').toLowerCase().includes('kapatıldı')).length;
+        document.getElementById('rep-active-legal').textContent = activeLegal;
+        
+        const totalBudget = Object.values(budgetForecast).reduce((a,b)=>a+b, 0);
+        document.getElementById('rep-budget-est').textContent = '₺' + totalBudget.toLocaleString('tr-TR');
+
+        // SÜRÜNCEMEDE KALAN İŞLER
+        const stuckItems = portfolios.filter(item => {
+            const status = (item.status || '').toLowerCase();
+            const appDate = item.applicationDate ? new Date(item.applicationDate) : null;
+            return (status.includes('başvuru') || status.includes('pending')) && appDate && appDate < sixMonthsAgo;
+        }).sort((a,b) => new Date(a.applicationDate) - new Date(b.applicationDate)).slice(0, 5);
+
+        const stuckTableBody = document.getElementById('rep-stuck-list');
+        stuckTableBody.innerHTML = '';
+        if (stuckItems.length === 0) {
+            stuckTableBody.innerHTML = '<tr><td colspan="4" class="text-center text-success py-3"><i class="fas fa-check-circle"></i> Harika! Sürüncemede kalan işiniz bulunmuyor.</td></tr>';
+        } else {
+            stuckItems.forEach(item => {
+                const appDate = new Date(item.applicationDate);
+                const diffDays = Math.ceil(Math.abs(now - appDate) / (1000 * 60 * 60 * 24)); 
+                stuckTableBody.innerHTML += `
+                    <tr>
+                        <td><div class="font-weight-bold text-truncate" style="max-width: 150px;">${item.title}</div></td>
+                        <td><span class="badge badge-light border">Başvuru Aşamasında</span></td>
+                        <td class="text-danger font-weight-bold">${diffDays} Gündür</td>
+                        <td><small class="text-muted">İlerleme Yok</small></td>
+                    </tr>`;
+            });
+        }
+
+        // GRAFİKLER (ApexCharts)
+        const renderChart = (id, options) => {
+            const el = document.querySelector("#" + id);
+            if(!el) return;
+            el.innerHTML = "";
+            new ApexCharts(el, { fontFamily: 'inherit', theme: { mode: document.body.classList.contains('dark-mode') ? 'dark' : 'light' }, toolbar: { show: false }, ...options }).render();
+        };
+
+        renderChart('chart-portfolio-dist', {
+            series: Object.values(typeCounts), labels: Object.keys(typeCounts),
+            chart: { type: 'donut', height: 260 }, colors: ['#4e73df', '#1cc88a', '#36b9cc']
+        });
+
+        const topClasses = Object.entries(classCounts).sort((a,b)=>b[1]-a[1]).slice(0, 6);
+        renderChart('chart-class-radar', {
+            series: [{ name: 'Marka Sayısı', data: topClasses.map(x => x[1]) }],
+            labels: topClasses.map(x => `Sınıf ${x[0]}`),
+            chart: { type: 'radar', height: 260 }, colors: ['#36b9cc']
+        });
+
+        const sortedBudgetKeys = Object.keys(budgetForecast).sort();
+        renderChart('chart-budget-forecast', {
+            series: [{ name: 'Tahmini Tutar', data: sortedBudgetKeys.map(k => budgetForecast[k]) }],
+            xaxis: { categories: sortedBudgetKeys.map(k => { const [y, m] = k.split('-'); return `${monthNames[parseInt(m)]} ${y}`; })},
+            chart: { type: 'bar', height: 260 }, colors: ['#4e73df'],
+            yaxis: { labels: { formatter: (val) => (val/1000).toFixed(1) + 'k' } }, dataLabels: { enabled: false }
+        });
     }
-
-
+    
     // ==========================================
     // YARDIMCI FONKSİYONLAR
     // ==========================================
