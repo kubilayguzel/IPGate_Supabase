@@ -11,3 +11,4 @@ supabase_schema_and_sample.json
 supabase_sample.json
 *.js
 *.json
+*.cache
