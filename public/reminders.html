@@ -100,6 +100,7 @@
                     <i class="fas fa-plus-circle mr-2"></i>Yeni Hatırlatma
                 </button>
             </header>
+            <div id="pending-users-container" class="mb-4"></div>
 
             <ul class="nav nav-pills mb-4 bg-white p-2 rounded-xl shadow-sm" style="width: fit-content; border: 1px solid #e2e8f0;">
                 <li class="nav-item"><a class="nav-link active" id="active-tab" data-toggle="pill" href="#">Gelen Kutusu <span class="badge badge-light ml-2" id="activeCount" style="color: #1e3c72;">0</span></a></li>
@@ -148,11 +149,10 @@
         </div>
     </div>
 
-    <script type="module">
-        import { reminderService, auth, db } from './firebase-config.js';
-        import { showNotification,formatToTRDate } from './utils.js';
+<script type="module">
+        import { supabase, authService, adminService, reminderService } from './supabase-config.js';
+        import { showNotification, formatToTRDate } from './utils.js';
         import { loadSharedLayout } from './js/layout-loader.js';
-        import { collection, getDocs } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
         class RemindersTimelineModule {
             constructor() {
@@ -160,64 +160,145 @@
                 this.currentPage = 1;
                 this.itemsPerPage = 10;
                 this.activeTab = 'active';
+                this.currentUser = null;
             }
 
             async init() {
                 await loadSharedLayout({ activeMenuLink: 'reminders.html' });
-                auth.onAuthStateChanged(async (user) => {
-                    if (user) {
-                        this.currentUser = user;
-                        await this.loadAllSources();
-                        this.setupEvents();
-                        if (window.EvrekaDatePicker) window.EvrekaDatePicker.init();
-                    }
-                });
+                
+                // Supabase Auth Kontrolü
+                const session = await authService.getCurrentSession();
+                if (session) {
+                    this.currentUser = session.user;
+                    this.loadPendingUsers(); // Bekleyen Kullanıcıları Yükle
+                    await this.loadAllSources(); // Hatırlatmaları Yükle
+                    this.setupEvents();
+                    if (window.EvrekaDatePicker) window.EvrekaDatePicker.init();
+                } else {
+                    window.location.replace('index.html');
+                }
             }
 
+            // 🔥 SİSTEM ONAYI BEKLEYEN KULLANICILAR PANeli
+            async loadPendingUsers() {
+                const container = document.getElementById('pending-users-container');
+                if (!container) return;
+
+                try {
+                    // Admin yetkisi olmayanlarda burası hata vermesin diye try-catch içindeyiz
+                    const { success, data } = await adminService.getPendingUsers();
+                    
+                    if (success && data && data.length > 0) {
+                        container.innerHTML = `
+                            <div class="card border-warning shadow-sm mb-4" style="border-radius: 16px;">
+                                <div class="card-header bg-warning text-dark fw-bold d-flex justify-content-between align-items-center" style="border-top-left-radius: 16px; border-top-right-radius: 16px; padding: 15px 20px;">
+                                    <span><i class="fas fa-user-clock mr-2"></i> Sistem Onayı Bekleyen Kullanıcılar</span>
+                                    <span class="badge badge-danger badge-pill px-3 py-2">${data.length} Bekleyen</span>
+                                </div>
+                                <ul class="list-group list-group-flush" style="border-bottom-left-radius: 16px; border-bottom-right-radius: 16px;">
+                                    ${data.map(user => `
+                                        <li class="list-group-item d-flex justify-content-between align-items-center p-3">
+                                            <div>
+                                                <h6 class="mb-1 font-weight-bold" style="color: #1e3c72;">${user.display_name || 'İsimsiz Kullanıcı'}</h6>
+                                                <small class="text-muted"><i class="fas fa-envelope mr-1"></i> ${user.email}</small>
+                                            </div>
+                                            <div>
+                                                <button class="btn btn-sm btn-success px-3 py-2 font-weight-bold approve-user-btn" data-id="${user.id}" style="border-radius: 8px; box-shadow: 0 2px 4px rgba(40,167,69,0.3);">
+                                                    <i class="fas fa-check mr-1"></i> Sisteme Kabul Et
+                                                </button>
+                                            </div>
+                                        </li>
+                                    `).join('')}
+                                </ul>
+                            </div>
+                        `;
+
+                        container.querySelectorAll('.approve-user-btn').forEach(btn => {
+                            btn.addEventListener('click', async (e) => {
+                                const userId = e.currentTarget.getAttribute('data-id');
+                                const originalHtml = e.currentTarget.innerHTML;
+                                e.currentTarget.disabled = true;
+                                e.currentTarget.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Onaylanıyor...';
+                                
+                                const res = await adminService.approveUser(userId, 'user'); 
+                                if (res.success) {
+                                    showNotification('Kullanıcı başarıyla onaylandı!', 'success');
+                                    this.loadPendingUsers(); 
+                                } else {
+                                    showNotification('Hata oluştu: ' + res.error, 'error');
+                                    e.currentTarget.disabled = false;
+                                    e.currentTarget.innerHTML = originalHtml;
+                                }
+                            });
+                        });
+                    } else {
+                        container.innerHTML = '';
+                    }
+                } catch (e) {}
+            }
+
+            // 🔥 SUPABASE'DEN TÜM VERİLERİ (TASKS, PERSONS, REMINDERS) ÇEK
             async loadAllSources() {
                 const container = document.getElementById('timelineContainer');
                 container.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary" style="width: 3rem; height: 3rem; color: #1e3c72 !important"></div></div>';
 
                 try {
-                    const [remRes, tasksSnap, personsSnap] = await Promise.all([
-                        reminderService.getReminders(),
-                        getDocs(collection(db, "tasks")),
-                        getDocs(collection(db, "persons"))
+                    // Promise.all ile paralel çekim
+                    const [remRes, tasksRes, personsRes] = await Promise.all([
+                        reminderService.getReminders(this.currentUser.id),
+                        supabase.from('tasks').select('id, title, status, official_due_date, operational_due_date'),
+                        supabase.from('persons').select('id, name, person_documents(id, document_type, validity_date)') // JOIN ile evrakları çektik
                     ]);
 
                     const rawManual = remRes.success ? remRes.data : [];
+                    const tasks = tasksRes.data || [];
+                    const persons = personsRes.data || [];
 
                     // --- TASKLAR (365/180) ---
-                    const taskReminders = tasksSnap.docs.map(doc => {
-                        const d = doc.data();
-                        if (d.status === 'completed') return null;
-                        const date = d.taskDueDate || d.dueDate || d.officialDue || d.operationalDue;
+                    const taskReminders = tasks.map(t => {
+                        if (t.status === 'completed') return null;
+                        const date = t.operational_due_date || t.official_due_date;
                         if (!date) return null;
                         const diff = this.getDayDiff(date);
                         if (diff > 365 || diff < -180) return null;
-                        return { id: doc.id, type: 'task', category: 'İŞ TAKİBİ', title: d.taskTitle || d.title || "İsimsiz İş", message: `<b>"${d.taskTitle || d.title}"</b> işine <b>${diff === 0 ? 'BUGÜN' : (diff > 0 ? diff + ' gün kaldı' : Math.abs(diff) + ' gün geçti')}</b>.`, dueDate: date, status: 'active', isRead: true, link: `task-update.html?id=${doc.id}` };
+                        return { 
+                            id: t.id, type: 'task', category: 'İŞ TAKİBİ', title: t.title || "İsimsiz İş", 
+                            message: `<b>"${t.title || 'İsimsiz İş'}"</b> işine <b>${diff === 0 ? 'BUGÜN' : (diff > 0 ? diff + ' gün kaldı' : Math.abs(diff) + ' gün geçti')}</b>.`, 
+                            dueDate: date, status: 'active', isRead: true, link: `task-update.html?id=${t.id}` 
+                        };
                     }).filter(Boolean);
 
-                    // --- EVRAKLAR ---
+                    // --- EVRAKLAR (Vekaletnameler vb.) ---
                     const docReminders = [];
-                    personsSnap.forEach(pDoc => {
-                        const p = pDoc.data();
-                        (p.documents || []).forEach((d, idx) => {
-                            const diff = this.getDayDiff(d.validityDate);
+                    persons.forEach(p => {
+                        (p.person_documents || []).forEach((d) => {
+                            if(!d.validity_date) return;
+                            const diff = this.getDayDiff(d.validity_date);
                             if (diff <= 365 && diff >= -60) {
-                                docReminders.push({ id: `${pDoc.id}_doc_${idx}`, type: 'doc', category: 'EVRAK SÜRESİ', title: `${d.type} Geçerlilik`, message: `<b>${p.name}</b> adına kayıtlı <b>${d.type}</b> belgesinin süresi doluyor (Kalan: ${diff} gün).`, dueDate: d.validityDate, status: 'active', isRead: false, link: 'persons.html' });
+                                docReminders.push({ 
+                                    id: d.id, type: 'doc', category: 'EVRAK SÜRESİ', title: `${d.document_type || 'Belge'} Geçerlilik`, 
+                                    message: `<b>${p.name}</b> adına kayıtlı <b>${d.document_type || 'Belge'}</b> belgesinin süresi doluyor (Kalan: ${diff} gün).`, 
+                                    dueDate: d.validity_date, status: 'active', isRead: false, link: 'persons.html' 
+                                });
                             }
                         });
                     });
 
                     // --- MANUEL ---
-                    const manualReminders = rawManual.map(r => ({ ...r, type: 'manual', category: r.category || 'KİŞİSEL NOT', message: r.description || r.title, dueDate: r.dueDate || r.date, isRead: r.isRead || false, status: r.status || 'active' }));
+                    const manualReminders = rawManual.map(r => ({ 
+                        ...r, type: 'manual', category: r.category || 'KİŞİSEL NOT', 
+                        message: r.description || r.title, dueDate: r.dueDate, 
+                        isRead: r.isRead || false, status: r.status || 'active' 
+                    }));
 
                     this.combinedData = [...manualReminders, ...taskReminders, ...docReminders]
                         .sort((a, b) => new Date(this.formatIsoDate(a.dueDate)) - new Date(this.formatIsoDate(b.dueDate)));
 
                     this.render();
-                } catch (e) { console.error(e); }
+                } catch (e) { 
+                    console.error("Hatırlatmalar yüklenirken hata:", e); 
+                    container.innerHTML = '<div class="alert alert-danger">Veriler yüklenemedi. Lütfen sayfayı yenileyin.</div>';
+                }
             }
 
             render() {
@@ -325,10 +406,26 @@
 
                 document.getElementById('reminderForm').onsubmit = async (e) => {
                     e.preventDefault();
-                    const data = { title: document.getElementById('reminderTitle').value, description: document.getElementById('reminderDescription').value, dueDate: document.getElementById('reminderDueDate').value, category: document.getElementById('reminderCategory').value, userId: this.currentUser.id, isRead: false, status: 'active', createdAt: new Date().toISOString() };
+                    
+                    const btn = e.target.querySelector('button[type="submit"]');
+                    btn.disabled = true;
+                    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Kaydediliyor...';
+                    
+                    const data = { 
+                        title: document.getElementById('reminderTitle').value, 
+                        description: document.getElementById('reminderDescription').value, 
+                        dueDate: document.getElementById('reminderDueDate').value, 
+                        category: document.getElementById('reminderCategory').value, 
+                        userId: this.currentUser.id 
+                    };
+                    
                     await reminderService.addReminder(data);
                     showNotification("Yeni hatırlatma başarıyla oluşturuldu.", "success");
+                    
+                    btn.disabled = false;
+                    btn.innerHTML = 'Kaydet';
                     document.getElementById('reminderModal').classList.remove('show');
+                    
                     await this.loadAllSources();
                 };
             }
