@@ -2,6 +2,9 @@
   "projects": {
     "test": "ip-manager-production-aab4b",
     "production": "ipgate-31bd2",
-    "default": "ip-manager-production-aab4b"
-  }
+    "default": "ip-manager-production-aab4b",
+    "IPgate-Supa-Test": "ipgate-supa-test"
+  },
+  "targets": {},
+  "etags": {}
 }
