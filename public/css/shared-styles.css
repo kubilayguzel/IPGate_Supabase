@@ -1,5 +1,24 @@
 /* shared-styles.css */
 
+
+/* Google Fonts - Montserrat Import */
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800&display=swap');
+
+/* Tüm Uygulamaya Montserrat Fontunu Zorla (Bootstrap'i Ezer) */
+body, 
+h1, h2, h3, h4, h5, h6, 
+p, span, div, a, li, td, th, 
+input, select, textarea, button, .btn,
+.sidebar-nav-item, .nav-link, .modal-title, .form-control {
+    font-family: 'Montserrat', sans-serif !important;
+}
+
+/* Tablo başlıkları ve vurgulu yazılar için ekstra şıklık */
+th, strong, b, h1, h2, h3, h4 {
+    font-weight: 600 !important;
+    letter-spacing: -0.3px; /* Modern fontlarda harf arası hafif daraltma çok şık durur */
+}
+
 /* Temel Sıfırlama ve Body Stilleri */
 * {
     margin: 0;
